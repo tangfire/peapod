@@ -35,7 +35,15 @@ else
   echo ".env already exists; keep it"
 fi
 
-mkdir -p data/zephyr/ssh data/woodpecker-cache
+mkdir -p data/zephyr/ssh
+cache_dir="${WOODPECKER_CACHE_DIR:-/opt/woodpecker-cache}"
+if ! mkdir -p "$cache_dir" 2>/dev/null; then
+  cache_dir="./data/woodpecker-cache"
+  mkdir -p "$cache_dir"
+  if ! grep -q '^WOODPECKER_CACHE_DIR=' .env 2>/dev/null; then
+    printf '\nWOODPECKER_CACHE_DIR=%s\n' "$cache_dir" >> .env
+  fi
+fi
 chmod 700 data/zephyr/ssh
 
 if [ ! -f data/zephyr/tasks.json ]; then
