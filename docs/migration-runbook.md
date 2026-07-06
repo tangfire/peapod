@@ -120,6 +120,28 @@ scp old-host:/opt/zefire-deploy/data/tasks.json /opt/zephyr/data/zephyr/tasks.js
 
 如果 repo id 改了，优先在 Zephyr 设置页修改任务配置，不要改源码。
 
+### Zephyr 自部署流水线
+
+Zephyr 仓库自带 `.woodpecker/deploy.yml`，迁移后建议把 Zephyr 自己也接进 Woodpecker，这样以后更新运维驾驶舱不需要 SSH 上机器手动替换。
+
+接入顺序：
+
+1. 在 Woodpecker 启用 Zephyr 仓库。
+2. 记录 Zephyr repo id。
+3. 给该 repo 开启 trusted volumes。Zephyr 自部署需要挂载 `/var/run/docker.sock` 和 `/opt/zephyr`。
+4. 把 `examples/tasks.zephyr-self.json` 合并到 `/opt/zephyr/data/zephyr/tasks.json`。
+5. 把示例里的 `repo_id` 和 `repo_name` 改成真实值。
+6. 先在 Zephyr 里执行 `检查 Zephyr 状态`，确认 Woodpecker 能触发到仓库。
+7. 再执行 `部署 Zephyr`。
+
+Zephyr 自部署目前支持：
+
+- `DEPLOY_ACTION=status`：检查 host systemd 服务和 health endpoint。
+- `DEPLOY_ACTION=restart`：重启 Zephyr，不改代码和配置。
+- `DEPLOY_ACTION=deploy`：前端构建、Go 测试、Go 构建，然后替换 `/opt/zephyr` 的运行版本。
+
+当前 `scripts/deploy-zephyr-local.sh` 默认 Zephyr 以 host systemd service `zephyr` 运行。如果新机器采用纯 Docker Compose 方式运行 Zephyr，需要继续用 `docker compose up -d --build`，或者按 Compose 部署方式调整该脚本。
+
 如果旧流水线使用 `skip_clone: true` 并依赖宿主缓存目录，迁移后要先预热源码缓存，或确认流水线会在缓存缺失时自行 clone：
 
 ```bash

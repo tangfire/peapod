@@ -49,6 +49,7 @@ Zephyr is intentionally configuration-driven.
 The bundled `examples/` folder contains:
 
 - `tasks.generic.json`: neutral example for a normal service
+- `tasks.zephyr-self.json`: Zephyr self-deploy tasks for Woodpecker
 - `monitor-hosts.generic.json`: local + remote host monitoring example
 - `tasks.novelcat.json`: our studio-specific migration example, intentionally outside the app defaults
 
@@ -112,6 +113,24 @@ Task example:
 ```
 
 Use the same `ZEPHYR_PROJECT_ID` for deploy and rollback tasks so the project status table can merge them into one service row.
+
+## Zephyr Self Deploy
+
+This repository includes `.woodpecker/deploy.yml` for Zephyr itself. It is a manual pipeline with three supported actions:
+
+- `DEPLOY_ACTION=status`: check the host service and health endpoint.
+- `DEPLOY_ACTION=restart`: restart the host Zephyr service.
+- `DEPLOY_ACTION=deploy`: run frontend build, Go tests, Go build, copy the new release into `/opt/zephyr`, and restart.
+
+To enable it on a new operations machine:
+
+1. Enable the Zephyr repository in Woodpecker.
+2. Mark the repo as trusted for volumes, because the deploy step mounts `/var/run/docker.sock` and `/opt/zephyr`.
+3. Add the task snippet from `examples/tasks.zephyr-self.json` into `data/zephyr/tasks.json`.
+4. Replace `repo_id` and `repo_name` with the real Woodpecker repo id and Git repo name.
+5. Run `检查 Zephyr 状态` first, then run `部署 Zephyr`.
+
+The current deploy script expects Zephyr to run as a host systemd service named `zephyr`. If you run Zephyr only as a Compose container, keep using `docker compose up -d --build` or adapt `scripts/deploy-zephyr-local.sh` for that deployment shape.
 
 ## Monitoring Hosts
 

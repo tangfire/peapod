@@ -1,0 +1,54 @@
+{
+  "repos": {
+    "9": "your-org/zephyr"
+  },
+  "tasks": [
+    {
+      "id": "zephyr-status",
+      "group": "Zephyr",
+      "title": "检查 Zephyr 状态",
+      "description": "检查 Zephyr 服务状态和健康检查入口。",
+      "repo_id": 9,
+      "repo_name": "your-org/zephyr",
+      "branch": "main",
+      "risk": "normal",
+      "variables": {
+        "DEPLOY_ACTION": "status",
+        "ZEPHYR_PROJECT_ID": "zephyr",
+        "ZEPHYR_PROJECT_NAME": "Zephyr"
+      }
+    },
+    {
+      "id": "zephyr-restart",
+      "group": "Zephyr",
+      "title": "重启 Zephyr",
+      "description": "只重启 Zephyr host service，不改数据库和配置。",
+      "repo_id": 9,
+      "repo_name": "your-org/zephyr",
+      "branch": "main",
+      "risk": "warning",
+      "confirm_text": "RESTART",
+      "variables": {
+        "DEPLOY_ACTION": "restart",
+        "ZEPHYR_PROJECT_ID": "zephyr",
+        "ZEPHYR_PROJECT_NAME": "Zephyr"
+      }
+    },
+    {
+      "id": "zephyr-deploy",
+      "group": "Zephyr",
+      "title": "部署 Zephyr",
+      "description": "运行 Zephyr 测试、构建前端和 Go 二进制，然后替换运行版本并重启。",
+      "repo_id": 9,
+      "repo_name": "your-org/zephyr",
+      "branch": "main",
+      "risk": "danger",
+      "confirm_text": "ZEPHYR",
+      "variables": {
+        "DEPLOY_ACTION": "deploy",
+        "ZEPHYR_PROJECT_ID": "zephyr",
+        "ZEPHYR_PROJECT_NAME": "Zephyr"
+      }
+    }
+  ]
+}
