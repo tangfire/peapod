@@ -6,6 +6,7 @@ steps:
     image: golang:1.25-alpine
     commands:
       - set -euo pipefail
+      - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip test/build"; exit 0; fi'
       - apk add --no-cache git nodejs npm
       - go test ./...
       - cd frontend
