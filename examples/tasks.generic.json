@@ -1,0 +1,38 @@
+{
+  "repos": {
+    "1": "your-service-repo"
+  },
+  "tasks": [
+    {
+      "id": "app-deploy",
+      "group": "业务服务",
+      "title": "部署业务服务",
+      "description": "触发 Woodpecker 发布业务服务。",
+      "repo_id": 1,
+      "repo_name": "your-service-repo",
+      "branch": "main",
+      "risk": "normal",
+      "variables": {
+        "DEPLOY_ACTION": "deploy",
+        "ZEPHYR_PROJECT_ID": "app",
+        "ZEPHYR_PROJECT_NAME": "业务服务"
+      }
+    },
+    {
+      "id": "app-rollback",
+      "group": "业务服务",
+      "title": "回退业务服务",
+      "description": "触发 Woodpecker 回退业务服务。",
+      "repo_id": 1,
+      "repo_name": "your-service-repo",
+      "branch": "main",
+      "risk": "danger",
+      "confirm_text": "ROLLBACK",
+      "variables": {
+        "DEPLOY_ACTION": "rollback",
+        "ZEPHYR_PROJECT_ID": "app",
+        "ZEPHYR_PROJECT_NAME": "业务服务"
+      }
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+name: zephyr
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-20m}"
+    max-file: "${DOCKER_LOG_MAX_FILE:-3}"
+
+services:
+  zephyr:
+    build: .
+    image: ${ZEPHYR_IMAGE:-zephyr:latest}
+    container_name: ${ZEPHYR_CONTAINER_NAME:-zephyr}
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - .env
+    ports:
+      - "${ZEPHYR_BIND:-127.0.0.1}:${ZEPHYR_PORT:-8095}:8095"
+    volumes:
+      - ./data/zephyr:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - woodpecker-server
+      - beszel
+      - grafana
+
+  woodpecker-server:
+    image: ${WOODPECKER_SERVER_IMAGE:-woodpeckerci/woodpecker-server:latest}
+    container_name: ${WOODPECKER_SERVER_CONTAINER_NAME:-woodpecker-server}
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "${WOODPECKER_BIND:-127.0.0.1}:${WOODPECKER_PORT:-8000}:8000"
+    environment:
+      WOODPECKER_OPEN: "${WOODPECKER_OPEN:-false}"
+      WOODPECKER_HOST: "${WOODPECKER_HOST:-http://127.0.0.1:8000}"
+      WOODPECKER_ADMIN: "${WOODPECKER_ADMIN:-}"
+      WOODPECKER_AGENT_SECRET: "${WOODPECKER_AGENT_SECRET:-change-me}"
+      WOODPECKER_GITHUB: "${WOODPECKER_GITHUB:-false}"
+      WOODPECKER_GITHUB_CLIENT: "${WOODPECKER_GITHUB_CLIENT:-}"
+      WOODPECKER_GITHUB_SECRET: "${WOODPECKER_GITHUB_SECRET:-}"
+      WOODPECKER_DATABASE_DRIVER: "${WOODPECKER_DATABASE_DRIVER:-sqlite3}"
+      WOODPECKER_DATABASE_DATASOURCE: "${WOODPECKER_DATABASE_DATASOURCE:-/var/lib/woodpecker/woodpecker.sqlite}"
+    volumes:
+      - woodpecker_server_data:/var/lib/woodpecker
+
+  woodpecker-agent:
+    image: ${WOODPECKER_AGENT_IMAGE:-woodpeckerci/woodpecker-agent:latest}
+    container_name: ${WOODPECKER_AGENT_CONTAINER_NAME:-woodpecker-agent}
+    restart: unless-stopped
+    logging: *default-logging
+    command: agent
+    environment:
+      WOODPECKER_SERVER: "${WOODPECKER_AGENT_SERVER:-woodpecker-server:9000}"
+      WOODPECKER_AGENT_SECRET: "${WOODPECKER_AGENT_SECRET:-change-me}"
+      WOODPECKER_MAX_WORKFLOWS: "${WOODPECKER_MAX_WORKFLOWS:-2}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - woodpecker_agent_config:/etc/woodpecker
+      - ${WOODPECKER_CACHE_DIR:-./data/woodpecker-cache}:/opt/woodpecker-cache
+    depends_on:
+      - woodpecker-server
+
+  beszel:
+    image: ${BESZEL_IMAGE:-henrygd/beszel:latest}
+    container_name: ${BESZEL_CONTAINER_NAME:-beszel}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      APP_URL: "${BESZEL_APP_URL:-http://127.0.0.1:8090}"
+      USER_EMAIL: "${BESZEL_USER_EMAIL:-}"
+      USER_PASSWORD: "${BESZEL_USER_PASSWORD:-}"
+    ports:
+      - "${BESZEL_BIND:-127.0.0.1}:${BESZEL_PORT:-8090}:8090"
+    volumes:
+      - beszel_data:/beszel_data
+      - beszel_socket:/beszel_socket
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.4.0}
+    container_name: ${GRAFANA_CONTAINER_NAME:-grafana}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-change-me}"
+      GF_SERVER_ROOT_URL: "${GRAFANA_PUBLIC_URL:-http://127.0.0.1:3000}"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.2.1}
+    container_name: ${PROMETHEUS_CONTAINER_NAME:-prometheus}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-remote-write-receiver
+    ports:
+      - "${PROMETHEUS_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:3.3.2}
+    container_name: ${LOKI_CONTAINER_NAME:-loki}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - -config.file=/etc/loki/config.yml
+      - -config.expand-env=true
+    environment:
+      LOKI_RETENTION_DAYS: "${LOKI_RETENTION_DAYS:-7}"
+    ports:
+      - "${LOKI_BIND:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./config/loki/loki.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:2.6.1}
+    container_name: ${TEMPO_CONTAINER_NAME:-tempo}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - -config.file=/etc/tempo/config.yml
+      - -config.expand-env=true
+    environment:
+      TEMPO_RETENTION: "${TEMPO_RETENTION:-72h}"
+    ports:
+      - "${TEMPO_BIND:-127.0.0.1}:${TEMPO_PORT:-3200}:3200"
+      - "${TEMPO_OTLP_GRPC_BIND:-127.0.0.1}:${TEMPO_OTLP_GRPC_PORT:-4317}:4317"
+    volumes:
+      - ./config/tempo/tempo.yml:/etc/tempo/config.yml:ro
+      - tempo_data:/var/tempo
+
+volumes:
+  woodpecker_server_data:
+  woodpecker_agent_config:
+  beszel_data:
+  beszel_socket:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:

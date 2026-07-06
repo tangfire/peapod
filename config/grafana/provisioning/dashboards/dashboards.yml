@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Zephyr
+    orgId: 1
+    folder: Zephyr
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards

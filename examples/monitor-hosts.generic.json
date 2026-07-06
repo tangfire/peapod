@@ -1,0 +1,19 @@
+[
+  {
+    "id": "local",
+    "name": "本机",
+    "role": "infra",
+    "beszel_names": ["local", "localhost", "本机", "zephyr"],
+    "containers": ["zephyr", "woodpecker-server", "woodpecker-agent", "beszel", "grafana", "loki", "prometheus", "tempo"]
+  },
+  {
+    "id": "remote-prod",
+    "name": "生产机",
+    "role": "production",
+    "ssh_host": "example.com:22",
+    "ssh_user": "ops",
+    "ssh_key_path": "/data/ssh/monitor_ed25519",
+    "beszel_names": ["prod", "production"],
+    "containers": ["api", "worker", "mysql", "redis"]
+  }
+]

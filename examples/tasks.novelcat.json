@@ -1,0 +1,40 @@
+{
+  "repos": {
+    "1": "xiezuomao-novel-factory",
+    "2": "lehu-campus",
+    "3": "9router-mod"
+  },
+  "tasks": [
+    {
+      "id": "xzm-product-deploy",
+      "group": "写书猫产品",
+      "title": "部署产品",
+      "description": "构建并蓝绿发布写书猫产品主链路。",
+      "repo_id": 1,
+      "repo_name": "xiezuomao-novel-factory",
+      "branch": "main",
+      "risk": "normal",
+      "variables": {
+        "DEPLOY_ACTION": "deploy",
+        "ZEPHYR_PROJECT_ID": "xzm-product",
+        "ZEPHYR_PROJECT_NAME": "写书猫产品"
+      }
+    },
+    {
+      "id": "xzm-product-rollback",
+      "group": "写书猫产品",
+      "title": "回退产品",
+      "description": "回退到生产机记录的上一版镜像。",
+      "repo_id": 1,
+      "repo_name": "xiezuomao-novel-factory",
+      "branch": "main",
+      "risk": "danger",
+      "confirm_text": "ROLLBACK",
+      "variables": {
+        "DEPLOY_ACTION": "rollback",
+        "ZEPHYR_PROJECT_ID": "xzm-product",
+        "ZEPHYR_PROJECT_NAME": "写书猫产品"
+      }
+    }
+  ]
+}
