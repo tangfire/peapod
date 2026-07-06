@@ -107,27 +107,10 @@ body {
 
 .zephyr-logo-wind {
   fill: none;
-  stroke: #fff7ee;
+  stroke: #ef6b44;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 4.2;
-  opacity: 0.96;
-}
-
-.zephyr-logo-wind-back {
-  opacity: 0.56;
-}
-
-.zephyr-logo-wind-front {
-  opacity: 0.95;
-}
-
-.zephyr-logo-pipeline {
-  fill: none;
-  stroke: #43b87f;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 3.2;
+  stroke-width: 6;
 }
 
 .zephyr-logo-monitor {
@@ -139,8 +122,10 @@ body {
   opacity: 0.88;
 }
 
-.zephyr-logo-flare {
-  fill: #ef6b44;
+.zephyr-logo-wind-soft {
+  stroke: #fff7ee;
+  stroke-width: 4;
+  opacity: 0.86;
 }
 
 .zephyr-logo-node {
@@ -547,13 +532,13 @@ body {
   margin-bottom: 12px;
 }
 
-.loading-logo-active .zephyr-logo-pipeline {
-  animation: logo-pulse 2.4s ease-in-out infinite;
-}
-
-.loading-logo-active .zephyr-logo-wind-front {
+.loading-logo-active .zephyr-logo-wind {
   stroke-dasharray: 46 18;
   animation: logo-breeze 2.9s linear infinite;
+}
+
+.loading-logo-active .zephyr-logo-node {
+  animation: logo-pulse 2.4s ease-in-out infinite;
 }
 
 .loading-title {
