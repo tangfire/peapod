@@ -14,11 +14,14 @@ export function ZephyrLogo({ className = "", title }: ZephyrLogoProps) {
     >
       {title && <title>{title}</title>}
       <circle className="zephyr-logo-core" cx="32" cy="32" r="27" />
-      <path className="zephyr-logo-wind" d="M18 20h26c2.8 0 4.8 2.2 4.3 4.7-.2 1.2-.9 2.2-1.8 3L25 45h26" />
-      <path className="zephyr-logo-flare" d="M39.5 15.8 25.2 34h10.6l-5.2 14.2L45 29.4H34.2l5.3-13.6Z" />
-      <circle className="zephyr-logo-node" cx="18" cy="20" r="3.6" />
-      <circle className="zephyr-logo-node" cx="51" cy="45" r="3.6" />
-      <path className="zephyr-logo-spark" d="M17 40c4.1 1.7 8.5 1.8 13.2.2" />
+      <path className="zephyr-logo-pipeline" d="M18 21h19c6.4 0 11 4.5 11 10.7V43" />
+      <path className="zephyr-logo-wind zephyr-logo-wind-back" d="M13 25c8.8-8.1 22.5-8.9 33.2-2.2 5.4 3.4 5.6 9.5.5 13.2-3.7 2.7-9.5 3.1-15.1 1.4" />
+      <path className="zephyr-logo-wind zephyr-logo-wind-front" d="M15 35c7.2-4.9 18.4-5.1 27.8-.8 5.6 2.6 5.4 8.2-.5 10.7-4.5 1.9-10.9 1.5-17.4-.5" />
+      <path className="zephyr-logo-monitor" d="M17 43h8l3.3-6.9 4.2 13.4 4-9.2H47" />
+      <path className="zephyr-logo-flare" d="M39.2 14.8 25.5 33.4h10.2l-4.8 15.8 14.8-21.6H35.2l4-12.8Z" />
+      <circle className="zephyr-logo-node" cx="18" cy="21" r="3.5" />
+      <circle className="zephyr-logo-node" cx="48" cy="31.7" r="3.5" />
+      <circle className="zephyr-logo-node" cx="48" cy="43" r="3.5" />
     </svg>
   );
 }

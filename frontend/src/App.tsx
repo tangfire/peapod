@@ -748,35 +748,22 @@ function LoadingShell() {
   return (
     <Layout className="app-layout">
       <Content className="loading-shell">
-        <div className="loading-panel">
-          <Space size={12}>
-            <ZephyrLogo className="loading-logo" title="Zephyr" />
-            <div>
-              <Text className="eyebrow">Infrastructure Console</Text>
-              <Title level={4} className="header-title">
-                Zephyr 正在同步状态
-              </Title>
-            </div>
-          </Space>
-          <Text type="secondary">正在读取部署任务、Woodpecker 流水线、监控摘要和当前账号。</Text>
-          <div className="loading-grid">
-            <div className="loading-card">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="loading-card">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="loading-wide">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
+        <div className="loading-scene">
+          <div className="loading-breeze" aria-hidden="true">
+            <span className="breeze-line breeze-line-a" />
+            <span className="breeze-line breeze-line-b" />
+            <span className="breeze-line breeze-line-c" />
+            <span className="breeze-node breeze-node-a" />
+            <span className="breeze-node breeze-node-b" />
           </div>
+          <ZephyrLogo className="loading-logo loading-logo-active" title="Zephyr" />
+          <Text className="eyebrow">Infrastructure Console</Text>
+          <Title level={4} className="loading-title">
+            Zephyr
+          </Title>
+          <Text type="secondary" className="loading-caption">
+            同步状态中
+          </Text>
         </div>
       </Content>
     </Layout>
