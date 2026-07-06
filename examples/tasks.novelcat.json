@@ -144,7 +144,10 @@
       "confirm_text": "CLEAN",
       "variables": {
         "DEPLOY_ACTION": "disk-cleanup",
-        "CLEANUP_MODE": "deep"
+        "CLEANUP_MODE": "deep",
+        "PRUNE_UNUSED_IMAGES": "1",
+        "CLEANUP_HOST_JOURNALD": "1",
+        "CLEANUP_CI_CACHE_DAYS": "3"
       }
     },
     {
@@ -159,7 +162,9 @@
       "confirm_text": "CLEAN",
       "variables": {
         "DEPLOY_ACTION": "production-disk-cleanup",
-        "CLEANUP_MODE": "deep"
+        "CLEANUP_MODE": "deep",
+        "PRUNE_UNUSED_IMAGES": "auto",
+        "CLEANUP_HOST_JOURNALD": "1"
       }
     },
     {
@@ -220,7 +225,10 @@
       "risk": "warning",
       "confirm_text": "CLEAN",
       "variables": {
-        "DEPLOY_ACTION": "cleanup"
+        "DEPLOY_ACTION": "cleanup",
+        "CLEANUP_MODE": "deep",
+        "PRUNE_UNUSED_IMAGES": "1",
+        "CLEANUP_HOST_JOURNALD": "1"
       }
     },
     {
