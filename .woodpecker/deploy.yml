@@ -17,6 +17,8 @@ steps:
   - name: go-test-build
     image: golang:1.25-alpine
     timeout: 12m
+    environment:
+      GOPROXY: https://goproxy.cn,direct
     commands:
       - set -euo pipefail
       - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip go test/build"; exit 0; fi'
