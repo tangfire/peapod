@@ -71,6 +71,27 @@ export type PipelineSummary = {
   woodpecker_url: string;
 };
 
+export type WoodpeckerRepo = {
+  id: number;
+  forge_id?: number;
+  forge_remote_id?: string;
+  owner?: string;
+  name?: string;
+  full_name?: string;
+  forge_url?: string;
+  clone_url?: string;
+  default_branch?: string;
+  visibility?: string;
+  private?: boolean;
+  active?: boolean;
+};
+
+export type WoodpeckerReposResponse = {
+  repos: WoodpeckerRepo[];
+  configured: Record<string, string>;
+  errors?: string[];
+};
+
 export type DeploymentStatus = {
   id: string;
   name: string;

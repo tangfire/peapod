@@ -539,13 +539,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
   }
 
   if (loading || !state) {
-    return (
-      <Layout className="app-layout">
-        <Content className="loading-shell">
-          <Card loading />
-        </Content>
-      </Layout>
-    );
+    return <LoadingShell />;
   }
 
   return (
@@ -743,6 +737,45 @@ function Shell({ page }: { page: "home" | "docs" }) {
         nowMs={nowMs}
         onClose={() => setPipelineSummaryOpen(false)}
       />
+    </Layout>
+  );
+}
+
+function LoadingShell() {
+  return (
+    <Layout className="app-layout">
+      <Content className="loading-shell">
+        <div className="loading-panel">
+          <Space size={12}>
+            <img className="loading-logo" src="/static/zefire-logo.png" alt="Zephyr" />
+            <div>
+              <Text className="eyebrow">Infrastructure Console</Text>
+              <Title level={4} className="header-title">
+                Zephyr 正在同步状态
+              </Title>
+            </div>
+          </Space>
+          <Text type="secondary">正在读取部署任务、Woodpecker 流水线、监控摘要和当前账号。</Text>
+          <div className="loading-grid">
+            <div className="loading-card">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="loading-card">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="loading-wide">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+      </Content>
     </Layout>
   );
 }

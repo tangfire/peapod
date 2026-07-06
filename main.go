@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -205,6 +206,41 @@ type PipelineSummary struct {
 	WoodpeckerURL  string         `json:"woodpecker_url"`
 }
 
+type WoodpeckerRepo struct {
+	ID            int    `json:"id"`
+	ForgeID       int    `json:"forge_id,omitempty"`
+	ForgeRemoteID string `json:"forge_remote_id,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+	Name          string `json:"name,omitempty"`
+	FullName      string `json:"full_name,omitempty"`
+	ForgeURL      string `json:"forge_url,omitempty"`
+	CloneURL      string `json:"clone_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	Visibility    string `json:"visibility,omitempty"`
+	Private       bool   `json:"private,omitempty"`
+	Active        bool   `json:"active"`
+}
+
+type WoodpeckerReposResponse struct {
+	Repos      []WoodpeckerRepo `json:"repos"`
+	Configured map[int]string   `json:"configured"`
+	Errors     []string         `json:"errors,omitempty"`
+}
+
+type WoodpeckerRepoLookupRequest struct {
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+}
+
+type WoodpeckerRepoActivateRequest struct {
+	ForgeRemoteID string `json:"forge_remote_id"`
+}
+
+type WoodpeckerRepoSaveRequest struct {
+	RepoID   int    `json:"repo_id"`
+	RepoName string `json:"repo_name"`
+}
+
 type DeploymentStatus struct {
 	ID                 string            `json:"id"`
 	Name               string            `json:"name"`
@@ -368,6 +404,8 @@ func main() {
 	mux.HandleFunc("/api/me", app.auth(app.me))
 	mux.HandleFunc("/api/me/password", app.auth(app.changeOwnPassword))
 	mux.HandleFunc("/api/setup/config", app.auth(app.setupConfig))
+	mux.HandleFunc("/api/woodpecker/repos", app.auth(app.woodpeckerRepos))
+	mux.HandleFunc("/api/woodpecker/repos/", app.auth(app.woodpeckerRepoAction))
 	mux.HandleFunc("/api/tasks/", app.auth(app.runTask))
 	mux.HandleFunc("/api/config/tasks", app.auth(app.customTasks))
 	mux.HandleFunc("/api/config/tasks/", app.auth(app.customTaskByID))
@@ -1119,6 +1157,110 @@ func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) woodpeckerRepos(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rows, err := a.listWoodpeckerRepos()
+	errors := []string{}
+	if err != nil {
+		errors = append(errors, err.Error())
+	}
+	writeJSON(w, WoodpeckerReposResponse{
+		Repos:      rows,
+		Configured: a.configuredRepos(),
+		Errors:     errors,
+	})
+}
+
+func (a *App) woodpeckerRepoAction(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	action := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/woodpecker/repos/"), "/")
+	switch action {
+	case "lookup":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req WoodpeckerRepoLookupRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		repo, err := a.lookupWoodpeckerRepo(req.Owner, req.Name)
+		if err != nil {
+			writeError(w, http.StatusNotFound, friendlyRepoLookupError(req, err))
+			return
+		}
+		writeJSON(w, map[string]any{"repo": repo})
+	case "activate":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req WoodpeckerRepoActivateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		repo, err := a.activateWoodpeckerRepo(req.ForgeRemoteID)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		_ = a.writeAudit(AuditRecord{
+			Time:      time.Now().Format(time.RFC3339),
+			UserID:    user.ID,
+			Username:  user.Username,
+			RemoteIP:  remoteIP(r),
+			TaskID:    "woodpecker-repo-activate",
+			TaskTitle: "启用 Woodpecker 仓库",
+			RepoID:    repo.ID,
+			Variables: map[string]string{"repo": repo.FullName, "forge_remote_id": repo.ForgeRemoteID},
+			Status:    "ok",
+		})
+		writeJSON(w, map[string]any{"repo": repo})
+	case "save":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req WoodpeckerRepoSaveRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := a.saveConfiguredRepo(req.RepoID, req.RepoName); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = a.writeAudit(AuditRecord{
+			Time:      time.Now().Format(time.RFC3339),
+			UserID:    user.ID,
+			Username:  user.Username,
+			RemoteIP:  remoteIP(r),
+			TaskID:    "woodpecker-repo-save",
+			TaskTitle: "保存 Zephyr 仓库映射",
+			RepoID:    req.RepoID,
+			Variables: map[string]string{"repo": strings.TrimSpace(req.RepoName)},
+			Status:    "ok",
+		})
+		writeJSON(w, WoodpeckerReposResponse{Repos: []WoodpeckerRepo{}, Configured: a.configuredRepos()})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
 func (a *App) customTasks(w http.ResponseWriter, r *http.Request) {
 	user := authUserFromRequest(r)
 	if user.Role != "admin" {
@@ -1398,6 +1540,88 @@ func (a *App) pipelineAction(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = a.writeAudit(record)
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (a *App) listWoodpeckerRepos() ([]WoodpeckerRepo, error) {
+	if strings.TrimSpace(a.cfg.WoodpeckerToken) == "" {
+		return nil, errors.New("Woodpecker token 未配置")
+	}
+	var rows []WoodpeckerRepo
+	if err := a.woodpeckerJSON(http.MethodGet, "/api/user/repos?perPage=100", nil, &rows); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return strings.ToLower(rows[i].FullName) < strings.ToLower(rows[j].FullName)
+	})
+	return rows, nil
+}
+
+func (a *App) lookupWoodpeckerRepo(owner string, name string) (WoodpeckerRepo, error) {
+	owner = strings.TrimSpace(owner)
+	name = strings.TrimSpace(name)
+	if owner == "" || name == "" {
+		return WoodpeckerRepo{}, errors.New("请输入 owner 和仓库名")
+	}
+	var repo WoodpeckerRepo
+	path := fmt.Sprintf("/api/repos/lookup/%s/%s", url.PathEscape(owner), url.PathEscape(name))
+	if err := a.woodpeckerJSON(http.MethodGet, path, nil, &repo); err != nil {
+		return WoodpeckerRepo{}, err
+	}
+	return repo, nil
+}
+
+func (a *App) activateWoodpeckerRepo(forgeRemoteID string) (WoodpeckerRepo, error) {
+	forgeRemoteID = strings.TrimSpace(forgeRemoteID)
+	if forgeRemoteID == "" {
+		return WoodpeckerRepo{}, errors.New("forge_remote_id is required")
+	}
+	var repo WoodpeckerRepo
+	path := "/api/repos?forge_remote_id=" + url.QueryEscape(forgeRemoteID)
+	if err := a.woodpeckerJSON(http.MethodPost, path, nil, &repo); err != nil {
+		return WoodpeckerRepo{}, err
+	}
+	return repo, nil
+}
+
+func (a *App) woodpeckerJSON(method string, path string, body any, out any) error {
+	endpoint := strings.TrimRight(a.cfg.WoodpeckerServer, "/") + path
+	var reader io.Reader
+	if body != nil {
+		payload, _ := json.Marshal(body)
+		reader = bytes.NewReader(payload)
+	}
+	request, err := http.NewRequest(method, endpoint, reader)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+a.cfg.WoodpeckerToken)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := a.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return WoodpeckerRequestError{Operation: method + " " + path, StatusCode: response.StatusCode, Body: strings.TrimSpace(string(payload))}
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func friendlyRepoLookupError(req WoodpeckerRepoLookupRequest, err error) string {
+	name := strings.Trim(strings.TrimSpace(req.Owner)+"/"+strings.TrimSpace(req.Name), "/")
+	if name == "" {
+		name = "这个仓库"
+	}
+	return fmt.Sprintf("Woodpecker 当前授权看不到 %s。请先确认 GitHub 仓库存在，并在 Woodpecker/GitHub OAuth 授权里允许访问该仓库。原始错误：%v", name, err)
 }
 
 func (a *App) createPipeline(repoID int, branch string, variables map[string]string) (Pipeline, error) {
@@ -2911,6 +3135,25 @@ func (a *App) saveCustomTaskConfig(cfg CustomTaskConfig) error {
 		return err
 	}
 	return os.Rename(tmp, a.cfg.TasksPath)
+}
+
+func (a *App) saveConfiguredRepo(repoID int, repoName string) error {
+	if repoID <= 0 {
+		return errors.New("Repo ID 必须大于 0")
+	}
+	repoName = strings.TrimSpace(repoName)
+	if repoName == "" {
+		return errors.New("仓库名称不能为空")
+	}
+	cfg, err := a.loadCustomTaskConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Repos == nil {
+		cfg.Repos = map[int]string{}
+	}
+	cfg.Repos[repoID] = repoName
+	return a.saveCustomTaskConfig(cfg)
 }
 
 func normalizeTaskConfig(task *Task) error {

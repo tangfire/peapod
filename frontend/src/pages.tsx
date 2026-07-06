@@ -58,7 +58,9 @@ import type {
   StateResponse,
   Task,
   TaskConfig,
-  User
+  User,
+  WoodpeckerRepo,
+  WoodpeckerReposResponse
 } from "./types";
 
 const { Text, Title } = Typography;
@@ -398,6 +400,11 @@ export function SettingsPage({
               {state.current_user.role === "admin" && state.auth_mode === "db" && <Users />}
             </Space>
           )
+        },
+        {
+          key: "repos",
+          label: "仓库",
+          children: state.current_user.role === "admin" ? <RepositoryConfigPanel state={state} onReload={onReload} /> : <Alert type="info" showIcon message="仓库配置只允许管理员查看和修改" />
         },
         {
           key: "tasks",
@@ -1810,6 +1817,206 @@ function Users() {
         ]}
       />
     </Card>
+  );
+}
+
+function RepositoryConfigPanel({ state, onReload }: { state: StateResponse; onReload: () => Promise<void> }) {
+  const { message } = AntApp.useApp();
+  const [repos, setRepos] = useState<WoodpeckerRepo[]>([]);
+  const [configured, setConfigured] = useState<Record<string, string>>(state.repos || {});
+  const [errors, setErrors] = useState<string[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [savingID, setSavingID] = useState<number | null>(null);
+  const [lookupResult, setLookupResult] = useState<WoodpeckerRepo | null>(null);
+  const [lookupForm] = Form.useForm();
+
+  async function loadRepos(options: { notify?: boolean } = {}) {
+    setLoadingRepos(true);
+    try {
+      const data = await api<WoodpeckerReposResponse>("/api/woodpecker/repos");
+      setRepos(data.repos || []);
+      setConfigured(data.configured || {});
+      setErrors(data.errors || []);
+      if (options.notify) message.success("仓库已刷新");
+    } catch (error) {
+      message.error(errorText(error) || "仓库加载失败");
+    } finally {
+      setLoadingRepos(false);
+    }
+  }
+
+  useEffect(() => {
+    lookupForm.setFieldsValue({ owner: "tangfire", name: "zephyr" });
+    loadRepos();
+  }, []);
+
+  async function lookup(values: { owner: string; name: string }) {
+    setLookupLoading(true);
+    setLookupResult(null);
+    try {
+      const data = await api<{ repo: WoodpeckerRepo }>("/api/woodpecker/repos/lookup", {
+        method: "POST",
+        body: JSON.stringify(values)
+      });
+      setLookupResult(data.repo);
+      message.success(`已找到 ${data.repo.full_name || values.owner + "/" + values.name}`);
+    } catch (error) {
+      message.error(errorText(error) || "Woodpecker 当前授权看不到这个仓库");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
+  async function saveRepo(repo: WoodpeckerRepo) {
+    const repoID = repo.id;
+    const repoName = repo.full_name || [repo.owner, repo.name].filter(Boolean).join("/") || `Repo ${repo.id}`;
+    if (!repoID || !repoName) {
+      message.error("仓库缺少 Repo ID 或名称");
+      return;
+    }
+    setSavingID(repoID);
+    try {
+      await api("/api/woodpecker/repos/save", {
+        method: "POST",
+        body: JSON.stringify({ repo_id: repoID, repo_name: repoName })
+      });
+      message.success(`已保存 ${repoName}`);
+      await loadRepos();
+      await onReload();
+    } catch (error) {
+      message.error(errorText(error) || "保存仓库映射失败");
+    } finally {
+      setSavingID(null);
+    }
+  }
+
+  async function activateAndSave(repo: WoodpeckerRepo) {
+    if (!repo.forge_remote_id) {
+      message.error("这个仓库缺少 forge_remote_id，无法启用");
+      return;
+    }
+    setLookupLoading(true);
+    try {
+      const data = await api<{ repo: WoodpeckerRepo }>("/api/woodpecker/repos/activate", {
+        method: "POST",
+        body: JSON.stringify({ forge_remote_id: repo.forge_remote_id })
+      });
+      setLookupResult(data.repo);
+      message.success(`Woodpecker 已启用 ${data.repo.full_name || repo.full_name}`);
+      await saveRepo(data.repo);
+    } catch (error) {
+      message.error(errorText(error) || "启用仓库失败");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
+  const columns: ColumnsType<WoodpeckerRepo> = [
+    {
+      title: "仓库",
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{row.full_name || `${row.owner || ""}/${row.name || ""}`}</Text>
+          <Text type="secondary">Repo ID {row.id} · {row.default_branch || "main"}</Text>
+        </Space>
+      )
+    },
+    {
+      title: "状态",
+      width: 160,
+      render: (_, row) => (
+        <Space wrap size={[4, 4]}>
+          <Tag color={row.active ? "green" : "gold"}>{row.active ? "已启用" : "未启用"}</Tag>
+          <Tag>{row.private ? "私有" : "公开"}</Tag>
+          {configured[String(row.id)] && <Tag color="blue">Zephyr 已保存</Tag>}
+        </Space>
+      )
+    },
+    {
+      title: "地址",
+      render: (_, row) => row.forge_url ? <Text copyable>{row.forge_url}</Text> : <Text type="secondary">-</Text>
+    },
+    {
+      title: "",
+      width: 190,
+      render: (_, row) => (
+        <Space>
+          <Button size="small" loading={savingID === row.id} onClick={() => saveRepo(row)}>
+            保存到 Zephyr
+          </Button>
+          {row.forge_url && <Button size="small" href={row.forge_url} target="_blank" icon={<ExternalLink size={14} />} />}
+        </Space>
+      )
+    }
+  ];
+
+  const zephyrEnabled = repos.some((repo) => (repo.full_name || "").toLowerCase() === "tangfire/zephyr");
+
+  return (
+    <Space direction="vertical" size={16} className="side-stack">
+      {!zephyrEnabled && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Woodpecker 里还没有启用 Zephyr 仓库"
+          description="如果 lookup tangfire/zephyr 仍然 404，通常是 GitHub OAuth 没授权到这个仓库，先去 Woodpecker 的添加仓库或 GitHub OAuth 权限里处理。"
+          action={state.links.woodpecker ? <Button size="small" href={state.links.woodpecker} target="_blank">打开 Woodpecker</Button> : undefined}
+        />
+      )}
+      <Card title="查找并启用仓库">
+        <Form form={lookupForm} layout="inline" onFinish={lookup} className="inline-create-form">
+          <Form.Item label="Owner" name="owner" rules={[{ required: true, message: "请输入 owner" }]}>
+            <Input placeholder="tangfire" />
+          </Form.Item>
+          <Form.Item label="仓库名" name="name" rules={[{ required: true, message: "请输入仓库名" }]}>
+            <Input placeholder="zephyr" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={lookupLoading}>
+            查询
+          </Button>
+        </Form>
+        {lookupResult && (
+          <Card size="small" className="repo-lookup-card">
+            <Space direction="vertical" size={10} className="side-stack">
+              <Space wrap>
+                <Text strong>{lookupResult.full_name || `${lookupResult.owner}/${lookupResult.name}`}</Text>
+                <Tag>{lookupResult.private ? "私有" : "公开"}</Tag>
+                <Tag>{lookupResult.default_branch || "main"}</Tag>
+                {lookupResult.id ? <Tag color="green">已启用 Repo ID {lookupResult.id}</Tag> : <Tag color="gold">待启用</Tag>}
+              </Space>
+              <Text type="secondary">forge_remote_id：{lookupResult.forge_remote_id || "-"}</Text>
+              <Space wrap>
+                {lookupResult.id ? (
+                  <Button type="primary" loading={savingID === lookupResult.id} onClick={() => saveRepo(lookupResult)}>
+                    保存到 Zephyr
+                  </Button>
+                ) : (
+                  <Button type="primary" loading={lookupLoading} onClick={() => activateAndSave(lookupResult)}>
+                    启用并保存
+                  </Button>
+                )}
+                {lookupResult.forge_url && <Button href={lookupResult.forge_url} target="_blank" icon={<ExternalLink size={14} />}>打开 GitHub</Button>}
+              </Space>
+            </Space>
+          </Card>
+        )}
+      </Card>
+      {errors.length > 0 && (
+        <Alert type="warning" showIcon message="Woodpecker 仓库同步有问题" description={errors.join("；")} />
+      )}
+      <Card title="Woodpecker 已启用仓库" extra={<Button icon={<RefreshCw size={16} />} loading={loadingRepos} onClick={() => loadRepos({ notify: true })}>刷新</Button>}>
+        <Table
+          rowKey="id"
+          size="small"
+          loading={loadingRepos}
+          columns={columns}
+          dataSource={repos}
+          pagination={false}
+          scroll={{ x: 820 }}
+        />
+      </Card>
+    </Space>
   );
 }
 
