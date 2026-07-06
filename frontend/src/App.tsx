@@ -458,7 +458,8 @@ function Shell({ page }: { page: "home" | "docs" }) {
 
   const pipelines = useMemo(() => flattenPipelines(state), [state]);
   const deploymentStatuses = state?.deployment_statuses || [];
-  const runningCount = pipelines.filter((item) => ["running", "pending"].includes(item.status)).length;
+  const activePipelines = pipelines.filter((item) => ["running", "pending"].includes(item.status));
+  const runningCount = activePipelines.length;
   const failedCount = recentFailedPipelineCount(pipelines, nowMs);
   const navItems = zephyrNavItems();
 
@@ -618,6 +619,15 @@ function Shell({ page }: { page: "home" | "docs" }) {
             <>
             <Alert type={runTask.risk === "danger" ? "error" : runTask.risk === "warning" ? "warning" : "info"} showIcon message={runTask.description} />
             <TaskRunContext task={runTask} statuses={deploymentStatuses} nowMs={nowMs} />
+            {activePipelines.length > 0 && (
+              <Alert
+                className="run-queue-alert"
+                type="warning"
+                showIcon
+                message={`当前有 ${activePipelines.length} 条流水线运行或排队`}
+                description={`Woodpecker 已按单并发执行，本次触发会进入队列，不会和 ${activePipelines[0].repo_name || `Repo ${activePipelines[0].repo_id}`} #${activePipelines[0].number} 同时构建。`}
+              />
+            )}
             <Form.Item
               label="本次执行分支"
               name="branch"

@@ -135,6 +135,10 @@ To enable it on a new operations machine:
 
 The current deploy script expects Zephyr to run as a host systemd service named `zephyr`. If you run Zephyr only as a Compose container, keep using `docker compose up -d --build` or adapt `scripts/deploy-zephyr-local.sh` for that deployment shape.
 
+## Build Queue
+
+Keep `WOODPECKER_MAX_WORKFLOWS=1` on small operations machines. Zephyr can trigger multiple deployments, but Woodpecker will run only one workflow at a time and keep the rest pending, which prevents two large Docker builds from exhausting CPU, memory, or disk IO at the same time.
+
 ## Monitoring Hosts
 
 Minimal example:

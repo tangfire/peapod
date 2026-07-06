@@ -357,6 +357,10 @@ body {
   margin: 12px 0 4px;
 }
 
+.run-queue-alert {
+  margin: 12px 0;
+}
+
 .monitoring-alert-inline {
   margin-bottom: 14px;
 }
