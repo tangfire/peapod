@@ -11,6 +11,11 @@
 - Docker 和 Docker Compose plugin。
 - 可访问 GitHub、镜像源、业务机器 SSH 端口。
 - 域名已准备好：Zephyr、Woodpecker、Beszel、Grafana。
+- 云厂商安全组已放行临时验证端口，或已准备 80/443 反代：
+  - Zephyr: `8095`
+  - Woodpecker: `8000`
+  - Beszel hub: `8090`
+  - Grafana: `3000`
 
 准备迁移资料：
 
@@ -88,6 +93,15 @@ docker compose up -d --build
 scripts/doctor.sh
 ```
 
+如果这是构建机，建议准备 Woodpecker 常用宿主目录：
+
+```bash
+sudo mkdir -p /opt/woodpecker-cache /opt/buildkit-cache /opt/deploy-cache
+sudo chmod 755 /opt/woodpecker-cache /opt/buildkit-cache /opt/deploy-cache
+```
+
+默认 Compose 会把 `/opt/woodpecker-cache` 挂进 agent，业务流水线仍可以在各自 `.woodpecker` 中显式挂载 `/opt/woodpecker-cache`、`/opt/buildkit-cache`、`/root/.ssh`、业务部署目录等路径。
+
 ## 迁移 Zephyr 任务配置
 
 从旧机器复制任务配置：
@@ -105,6 +119,15 @@ scp old-host:/opt/zefire-deploy/data/tasks.json /opt/zephyr/data/zephyr/tasks.js
 - 清理磁盘任务是否只清 Docker cache、构建缓存和明确允许的目录。
 
 如果 repo id 改了，优先在 Zephyr 设置页修改任务配置，不要改源码。
+
+如果旧流水线使用 `skip_clone: true` 并依赖宿主缓存目录，迁移后要先预热源码缓存，或确认流水线会在缓存缺失时自行 clone：
+
+```bash
+sudo mkdir -p /opt/woodpecker-cache
+sudo git clone --branch main git@github.com:owner/repo.git /opt/woodpecker-cache/repo
+```
+
+需要本地部署 runner 镜像的项目，也要在新构建机提前准备镜像，例如 `xiezuomao-deploy-runner:latest`、`9router-deploy-runner:latest`，否则 deploy step 会在第一轮找不到本地镜像。
 
 ## 迁移 Woodpecker
 
@@ -147,6 +170,15 @@ docker compose start woodpecker-server woodpecker-agent
 按 Beszel 页面生成 agent 命令。接入成功后，Zephyr 监控页应该能看到对应机器。
 
 如果 Beszel 暂时不可用，Zephyr 可以通过 SSH fallback 展示基本资源，但这不是长期方案。
+
+从旧 hub 迁到新 hub 时，旧 agent 往往仍指向旧地址。处理顺序：
+
+1. 先确认新 hub 从业务机可达：`curl http://NEW_OPS_IP:8090/api/health`。
+2. 在新 Beszel 页面确认或生成 agent key/token。
+3. 停旧 agent，用新 `HUB_URL`、`KEY`、`TOKEN`、`SYSTEM_NAME` 重新启动。
+4. Zephyr 监控页应从 `ssh_fallback` 变成 `beszel` 或至少不再提示 Beszel 记录不可用。
+
+不要在安全组未放通 `8090` 前切 agent，否则 agent 会反复重连失败，Zephyr 只能继续走 SSH fallback。
 
 ### 日志采集 agent
 
