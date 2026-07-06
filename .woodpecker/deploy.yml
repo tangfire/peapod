@@ -2,22 +2,36 @@ when:
   - event: manual
 
 steps:
-  - name: test-and-build
-    image: golang:1.25-alpine
+  - name: frontend-build
+    image: node:22-alpine
+    timeout: 12m
     commands:
       - set -euo pipefail
       - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip test/build"; exit 0; fi'
-      - apk add --no-cache git nodejs npm
-      - go test ./...
       - cd frontend
       - npm ci --no-audit --no-fund
       - npm run build
-      - cd ..
+    volumes:
+      - /opt/woodpecker-cache/zephyr/npm:/root/.npm
+
+  - name: go-test-build
+    image: golang:1.25-alpine
+    timeout: 12m
+    commands:
+      - set -euo pipefail
+      - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip go test/build"; exit 0; fi'
+      - go test ./...
       - mkdir -p .woodpecker-build
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o .woodpecker-build/zephyr .
+    volumes:
+      - /opt/woodpecker-cache/zephyr/go/pkg:/go/pkg/mod
+      - /opt/woodpecker-cache/zephyr/go/build:/root/.cache/go-build
 
   - name: deploy
     image: docker:28-cli
+    depends_on:
+      - frontend-build
+      - go-test-build
     commands:
       - set -euo pipefail
       - sh scripts/deploy-zephyr-local.sh
