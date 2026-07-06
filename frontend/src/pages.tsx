@@ -83,6 +83,8 @@ const riskColors: Record<Risk, string> = {
   link: "blue"
 };
 
+const OVERVIEW_PIPELINE_LOOKBACK_SECONDS = 24 * 60 * 60;
+
 export function zephyrNavItems() {
   return [
     { key: "overview", icon: <Home size={16} />, label: "总览" },
@@ -126,8 +128,7 @@ export function OverviewPage({
 }) {
   const alerts = monitoring?.alerts || [];
   const alertLevel = highestMonitoringAlertLevel(alerts);
-  const runningPipelines = pipelines.filter((item) => ["running", "pending"].includes(item.status)).slice(0, 4);
-  const failedPipelines = pipelines.filter((item) => ["failure", "error"].includes(item.status)).slice(0, 3);
+  const attentionPipelines = overviewPipelineRows(pipelines, nowMs, 4);
   const productDeploy = state.tasks.find((task) => task.id === "xzm-product-deploy");
   const productRollback = state.tasks.find((task) => task.id === "xzm-product-rollback");
   const productionCleanup = state.tasks.find((task) => task.id === "production-cleanup");
@@ -173,7 +174,7 @@ export function OverviewPage({
 
       <StatisticCard.Group className="overview-stat-group" direction="row">
         <StatisticCard statistic={{ title: "运行中 / 排队", value: runningCount, prefix: <Activity size={18} /> }} />
-        <StatisticCard statistic={{ title: "最近失败", value: failedCount, valueStyle: { color: failedCount ? "#bd2c2c" : undefined } }} />
+        <StatisticCard statistic={{ title: "24h 失败", value: failedCount, valueStyle: { color: failedCount ? "#bd2c2c" : undefined } }} />
         <StatisticCard statistic={{ title: "磁盘最高", value: `${formatPercent(highestDisk.value)}%`, description: highestDisk.host?.name || "-" }} />
         <StatisticCard statistic={{ title: "内存最高", value: `${formatPercent(highestMemory.value)}%`, description: highestMemory.host?.name || "-" }} />
       </StatisticCard.Group>
@@ -192,8 +193,8 @@ export function OverviewPage({
         <ProCard title="线上版本" extra={<Button type="link" onClick={() => onNavigate("deploy")}>进入部署</Button>}>
           <DeploymentVersionList rows={deploymentStatuses.slice(0, 6)} nowMs={nowMs} />
         </ProCard>
-        <ProCard title="流水线动态" extra={<Button type="link" onClick={() => onNavigate("pipelines")}>查看全部</Button>}>
-          <PipelineActivityList rows={runningPipelines.length ? runningPipelines : failedPipelines} nowMs={nowMs} onInspect={onInspectPipeline} />
+        <ProCard title="近期流水线" extra={<Button type="link" onClick={() => onNavigate("pipelines")}>查看全部</Button>}>
+          <PipelineActivityList rows={attentionPipelines} nowMs={nowMs} onInspect={onInspectPipeline} />
         </ProCard>
       </ProCard>
 
@@ -230,7 +231,7 @@ function DeploymentVersionList({ rows, nowMs }: { rows: DeploymentStatus[]; nowM
 }
 
 function PipelineActivityList({ rows, nowMs, onInspect }: { rows: Pipeline[]; nowMs: number; onInspect: (row: Pipeline) => void }) {
-  if (!rows.length) return <Alert type="success" showIcon message="当前没有运行中或失败流水线" />;
+  if (!rows.length) return <Alert type="success" showIcon message="24 小时内没有需要关注的流水线" />;
   return (
     <List
       className="overview-pipeline-list"
@@ -244,7 +245,7 @@ function PipelineActivityList({ rows, nowMs, onInspect }: { rows: Pipeline[]; no
                 <Tag color={statusColors[row.status] || "default"}>{statusText(row.status)}</Tag>
               </Space>
             }
-            description={<Text type="secondary">{pipelineTaskText(row)} · {pipelineDurationText(row, nowMs)}</Text>}
+            description={<Text type="secondary">{pipelineTaskText(row)} · {pipelineActivityMetaText(row, nowMs)}</Text>}
           />
         </List.Item>
       )}
@@ -2430,6 +2431,24 @@ export function flattenPipelines(state: StateResponse | null): Pipeline[] {
   return rows.sort((a, b) => pipelineSortTime(b) - pipelineSortTime(a));
 }
 
+export function recentFailedPipelineCount(rows: Pipeline[], nowMs: number): number {
+  return rows.filter((row) => isRecentFailedPipeline(row, nowMs)).length;
+}
+
+function overviewPipelineRows(rows: Pipeline[], nowMs: number, limit: number): Pipeline[] {
+  return rows
+    .filter((row) => ["running", "pending"].includes(row.status) || isRecentFailedPipeline(row, nowMs))
+    .slice(0, limit);
+}
+
+function isRecentFailedPipeline(row: Pipeline, nowMs: number): boolean {
+  if (!["failure", "error"].includes(row.status)) return false;
+  const at = pipelineSortTime(row);
+  if (!at) return false;
+  const now = Math.floor(nowMs / 1000);
+  return now - at <= OVERVIEW_PIPELINE_LOOKBACK_SECONDS;
+}
+
 export function pipelineURL(base: string, row: Pipeline): string {
   return `${base.replace(/\/+$/, "")}/repos/${row.repo_id}/pipeline/${row.number}`;
 }
@@ -2565,6 +2584,14 @@ function pipelineDurationText(row: Pipeline, nowMs: number): string {
   if (row.created && ["pending", "running"].includes(row.status)) return `排队 ${formatDuration(now - row.created)}`;
   if (row.created && row.finished) return `总计 ${formatDuration(row.finished - row.created)}`;
   return "-";
+}
+
+function pipelineActivityMetaText(row: Pipeline, nowMs: number): string {
+  if (["running", "pending"].includes(row.status)) return pipelineDurationText(row, nowMs);
+  const at = pipelineSortTime(row);
+  const age = at ? deployedAgeText(at, nowMs) : "";
+  const duration = row.started && row.finished ? `耗时 ${formatDuration(row.finished - row.started)}` : "";
+  return [age, duration].filter(Boolean).join(" · ") || pipelineDurationText(row, nowMs);
 }
 
 function pipelineStepTimeText(step: PipelineStep): string {

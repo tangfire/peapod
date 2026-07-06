@@ -386,6 +386,7 @@ func main() {
 	mux.HandleFunc("/docs", app.docs)
 	mux.HandleFunc("/login", app.login)
 	mux.HandleFunc("/logout", app.logout)
+	mux.HandleFunc("/zephyr-logo.svg", app.frontendStatic("zephyr-logo.svg"))
 	mux.Handle("/assets/", app.frontendAssets())
 	mux.HandleFunc("/api/login", app.apiLogin)
 	mux.HandleFunc("/api/logout", app.apiLogout)
@@ -658,6 +659,17 @@ func securityHeaders(next http.Handler) http.Handler {
 
 func (a *App) frontendAssets() http.Handler {
 	return http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(a.cfg.FrontendDir, "assets"))))
+}
+
+func (a *App) frontendStatic(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := filepath.Join(a.cfg.FrontendDir, name)
+		if stat, err := os.Stat(path); err == nil && !stat.IsDir() {
+			http.ServeFile(w, r, path)
+			return
+		}
+		http.NotFound(w, r)
+	}
 }
 
 func (a *App) serveFrontend(w http.ResponseWriter, r *http.Request, fallback *template.Template) {
@@ -3416,7 +3428,7 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Zephyr</title>
-  <link rel="icon" type="image/svg+xml" href="` + faviconDataURI + `" />
+  <link rel="icon" type="image/svg+xml" href="` + faviconPath + `" />
   <style>{{template "styles"}}</style>
 </head>
 <body class="login-page">
@@ -3445,7 +3457,7 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Zephyr</title>
-  <link rel="icon" type="image/svg+xml" href="` + faviconDataURI + `" />
+  <link rel="icon" type="image/svg+xml" href="` + faviconPath + `" />
   <style>{{template "styles"}}</style>
 </head>
 <body>
@@ -3583,7 +3595,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Zephyr · 部署文档</title>
-  <link rel="icon" type="image/svg+xml" href="` + faviconDataURI + `" />
+  <link rel="icon" type="image/svg+xml" href="` + faviconPath + `" />
   <style>{{template "styles"}}</style>
 </head>
 <body>
@@ -3657,14 +3669,10 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
 </html>
 {{define "styles"}}` + css + `{{end}}`))
 
-const faviconDataURI = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='29' fill='%23202a2e'/%3E%3Cpath d='M17 35c8.2-6.8 21.5-7.2 30-1.1' fill='none' stroke='%23fff7ee' stroke-width='5.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M40 18 28 46' fill='none' stroke='%23ef6b44' stroke-width='5.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E`
+const faviconPath = `/zephyr-logo.svg`
 
 const zephyrLogo = `
-<svg class="zephyr-logo" viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
-  <circle class="zephyr-logo-core" cx="32" cy="32" r="27" />
-  <path class="zephyr-logo-breeze" d="M17 35c8.2-6.8 21.5-7.2 30-1.1" />
-  <path class="zephyr-logo-accent" d="M40 18 28 46" />
-</svg>`
+<img class="zephyr-logo" src="/zephyr-logo.svg" alt="" draggable="false" />`
 
 const css = `
 :root { color-scheme: light; --bg:#f7f3ee; --panel:#fffaf5; --ink:#1c2427; --muted:#6d757c; --line:#eadfd5; --accent:#ea6549; --ok:#1f8a5b; --warn:#ba7a17; --danger:#bd2c2c; }
@@ -3732,10 +3740,7 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 .login-card { position:relative; z-index:1; width:min(420px,100%); padding:28px; background:rgba(255,250,245,.95); border:1px solid var(--line); border-radius:8px; box-shadow:0 28px 70px rgba(70,45,30,.12); }
 .brand-mark { width:58px; height:58px; display:grid; place-items:center; margin-bottom:14px; }
 .brand-mark-small { width:44px; height:44px; margin-bottom:0; flex:0 0 auto; }
-.zephyr-logo { width:100%; height:100%; display:block; filter:drop-shadow(0 10px 22px rgba(70,45,30,.18)); }
-.zephyr-logo-core { fill:#202a2e; }
-.zephyr-logo-breeze { fill:none; stroke:#fff7ee; stroke-width:5.6; stroke-linecap:round; stroke-linejoin:round; }
-.zephyr-logo-accent { fill:none; stroke:var(--accent); stroke-width:5.2; stroke-linecap:round; stroke-linejoin:round; }
+.zephyr-logo { width:100%; height:100%; display:block; object-fit:contain; user-select:none; filter:drop-shadow(0 10px 22px rgba(70,45,30,.18)); }
 .brand-mark-small .zephyr-logo { filter:drop-shadow(0 8px 16px rgba(70,45,30,.12)); }
 label { display:block; margin:14px 0 8px; font-weight:800; }
 input, select { width:100%; height:42px; border:1px solid var(--line); border-radius:7px; padding:0 12px; background:#fff; color:var(--ink); }

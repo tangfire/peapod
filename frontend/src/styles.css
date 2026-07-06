@@ -97,28 +97,9 @@ body {
 
 .zephyr-logo {
   display: block;
-  overflow: visible;
+  object-fit: contain;
+  user-select: none;
   filter: drop-shadow(0 10px 22px rgba(29, 37, 43, 0.14));
-}
-
-.zephyr-logo-core {
-  fill: #202a2e;
-}
-
-.zephyr-logo-breeze {
-  fill: none;
-  stroke: #fff7ee;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 5.6;
-}
-
-.zephyr-logo-accent {
-  fill: none;
-  stroke: #ef6b44;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 5.2;
 }
 
 .eyebrow {
@@ -583,9 +564,8 @@ body {
   margin-bottom: 12px;
 }
 
-.loading-logo-active .zephyr-logo-breeze {
-  stroke-dasharray: 42 16;
-  animation: logo-breeze 3s linear infinite;
+.loading-logo-active {
+  animation: logo-breathe 3.6s ease-in-out infinite;
 }
 
 .loading-title {
@@ -689,9 +669,16 @@ body {
   }
 }
 
-@keyframes logo-breeze {
-  to {
-    stroke-dashoffset: -128;
+@keyframes logo-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 10px 22px rgba(29, 37, 43, 0.14));
+  }
+
+  50% {
+    transform: translateY(-2px) scale(1.015);
+    filter: drop-shadow(0 14px 28px rgba(29, 37, 43, 0.18));
   }
 }
 

@@ -49,6 +49,7 @@ import {
   branchOptionsForTask,
   canRunTask,
   flattenPipelines,
+  recentFailedPipelineCount,
   parseVariables,
   pipelineURL,
   variablesText,
@@ -456,7 +457,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
   const pipelines = useMemo(() => flattenPipelines(state), [state]);
   const deploymentStatuses = state?.deployment_statuses || [];
   const runningCount = pipelines.filter((item) => ["running", "pending"].includes(item.status)).length;
-  const failedCount = pipelines.filter((item) => ["failure", "error"].includes(item.status)).length;
+  const failedCount = recentFailedPipelineCount(pipelines, nowMs);
   const navItems = zephyrNavItems();
 
   function navigate(key: string) {
