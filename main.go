@@ -40,6 +40,7 @@ type sessionPayload struct {
 
 type Config struct {
 	Addr                  string
+	ConfigPath            string
 	PublicURL             string
 	Password              string
 	SessionSecret         string
@@ -66,6 +67,73 @@ type Config struct {
 	AuditPath             string
 	TasksPath             string
 	FrontendDir           string
+}
+
+type RuntimeConfigFile struct {
+	PublicURL             string               `json:"public_url,omitempty"`
+	WoodpeckerServer      string               `json:"woodpecker_server,omitempty"`
+	WoodpeckerPublicURL   string               `json:"woodpecker_public_url,omitempty"`
+	WoodpeckerToken       string               `json:"woodpecker_token,omitempty"`
+	BeszelBaseURL         string               `json:"beszel_base_url,omitempty"`
+	BeszelPublicURL       string               `json:"beszel_public_url,omitempty"`
+	BeszelEmail           string               `json:"beszel_email,omitempty"`
+	BeszelPassword        string               `json:"beszel_password,omitempty"`
+	GrafanaPublicURL      string               `json:"grafana_public_url,omitempty"`
+	ExternalLinks         []ExternalLinkConfig `json:"external_links"`
+	MonitorHosts          []MonitorHostConfig  `json:"monitor_hosts"`
+	MonitorRefreshSeconds int                  `json:"monitor_refresh_seconds,omitempty"`
+	MonitorWarnDisk       int                  `json:"monitor_warn_disk,omitempty"`
+	MonitorCritDisk       int                  `json:"monitor_crit_disk,omitempty"`
+	MonitorWarnMemory     int                  `json:"monitor_warn_memory,omitempty"`
+}
+
+type RuntimeConfigInput struct {
+	PublicURL             string               `json:"public_url"`
+	WoodpeckerServer      string               `json:"woodpecker_server"`
+	WoodpeckerPublicURL   string               `json:"woodpecker_public_url"`
+	WoodpeckerToken       string               `json:"woodpecker_token"`
+	BeszelBaseURL         string               `json:"beszel_base_url"`
+	BeszelPublicURL       string               `json:"beszel_public_url"`
+	BeszelEmail           string               `json:"beszel_email"`
+	BeszelPassword        string               `json:"beszel_password"`
+	GrafanaPublicURL      string               `json:"grafana_public_url"`
+	ExternalLinks         []ExternalLinkConfig `json:"external_links"`
+	MonitorHosts          []MonitorHostConfig  `json:"monitor_hosts"`
+	MonitorRefreshSeconds int                  `json:"monitor_refresh_seconds"`
+	MonitorWarnDisk       int                  `json:"monitor_warn_disk"`
+	MonitorCritDisk       int                  `json:"monitor_crit_disk"`
+	MonitorWarnMemory     int                  `json:"monitor_warn_memory"`
+}
+
+type SetupConfigResponse struct {
+	Config    RuntimeConfigInput `json:"config"`
+	Secrets   map[string]bool    `json:"secrets"`
+	Status    []SetupStatusItem  `json:"status"`
+	Commands  []SetupCommand     `json:"commands"`
+	Docs      []SetupDocLink     `json:"docs"`
+	UpdatedAt string             `json:"updated_at"`
+}
+
+type SetupStatusItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	Message     string `json:"message"`
+	ActionLabel string `json:"action_label,omitempty"`
+	ActionURL   string `json:"action_url,omitempty"`
+}
+
+type SetupCommand struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Command     string `json:"command"`
+}
+
+type SetupDocLink struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
 }
 
 type Task struct {
@@ -299,6 +367,7 @@ func main() {
 	mux.HandleFunc("/api/users/", app.auth(app.userByID))
 	mux.HandleFunc("/api/me", app.auth(app.me))
 	mux.HandleFunc("/api/me/password", app.auth(app.changeOwnPassword))
+	mux.HandleFunc("/api/setup/config", app.auth(app.setupConfig))
 	mux.HandleFunc("/api/tasks/", app.auth(app.runTask))
 	mux.HandleFunc("/api/config/tasks", app.auth(app.customTasks))
 	mux.HandleFunc("/api/config/tasks/", app.auth(app.customTaskByID))
@@ -329,8 +398,9 @@ type App struct {
 }
 
 func loadConfig() Config {
-	return Config{
+	cfg := Config{
 		Addr:                  envCompat("ZEPHYR_ADDR", "ZEFIRE_ADDR", ":8095"),
+		ConfigPath:            envCompat("ZEPHYR_CONFIG_PATH", "ZEFIRE_CONFIG_PATH", "/data/config.json"),
 		PublicURL:             strings.TrimRight(envCompat("ZEPHYR_PUBLIC_URL", "ZEFIRE_PUBLIC_URL", "http://127.0.0.1:8095"), "/"),
 		Password:              envCompat("ZEPHYR_PASSWORD", "ZEFIRE_PASSWORD", ""),
 		SessionSecret:         envCompat("ZEPHYR_SESSION_SECRET", "ZEFIRE_SESSION_SECRET", ""),
@@ -358,6 +428,159 @@ func loadConfig() Config {
 		TasksPath:             envCompat("ZEPHYR_TASKS_PATH", "ZEFIRE_TASKS_PATH", "/data/tasks.json"),
 		FrontendDir:           envCompat("ZEPHYR_FRONTEND_DIR", "ZEFIRE_FRONTEND_DIR", "frontend/dist"),
 	}
+	if runtimeCfg, err := loadRuntimeConfigFile(cfg.ConfigPath); err == nil {
+		applyRuntimeConfig(&cfg, runtimeCfg)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.Printf("load runtime config failed: %v", err)
+	}
+	return cfg
+}
+
+func loadRuntimeConfigFile(path string) (RuntimeConfigFile, error) {
+	if strings.TrimSpace(path) == "" {
+		return RuntimeConfigFile{}, os.ErrNotExist
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return RuntimeConfigFile{}, err
+	}
+	var cfg RuntimeConfigFile
+	if err := json.Unmarshal(payload, &cfg); err != nil {
+		return RuntimeConfigFile{}, err
+	}
+	return cfg, nil
+}
+
+func saveRuntimeConfigFile(path string, cfg RuntimeConfigFile) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("ZEPHYR_CONFIG_PATH is not configured")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(payload, '\n'), 0o600)
+}
+
+func applyRuntimeConfig(cfg *Config, runtime RuntimeConfigFile) {
+	if value := cleanURL(runtime.PublicURL); value != "" {
+		cfg.PublicURL = value
+	}
+	if value := cleanURL(runtime.WoodpeckerServer); value != "" {
+		cfg.WoodpeckerServer = value
+	}
+	if value := cleanURL(runtime.WoodpeckerPublicURL); value != "" {
+		cfg.WoodpeckerPublicURL = value
+	}
+	if value := strings.TrimSpace(runtime.WoodpeckerToken); value != "" {
+		cfg.WoodpeckerToken = value
+	}
+	if value := cleanURL(runtime.BeszelBaseURL); value != "" {
+		cfg.BeszelBaseURL = value
+	}
+	if value := cleanURL(runtime.BeszelPublicURL); value != "" {
+		cfg.BeszelPublicURL = value
+	}
+	if value := strings.TrimSpace(runtime.BeszelEmail); value != "" {
+		cfg.BeszelEmail = value
+	}
+	if value := strings.TrimSpace(runtime.BeszelPassword); value != "" {
+		cfg.BeszelPassword = value
+	}
+	if value := cleanURL(runtime.GrafanaPublicURL); value != "" {
+		cfg.GrafanaPublicURL = value
+	}
+	if runtime.ExternalLinks != nil {
+		cfg.ExternalLinksJSON = mustMarshalString(normalizeExternalLinks(runtime.ExternalLinks))
+	}
+	if runtime.MonitorHosts != nil {
+		cfg.MonitorHostsJSON = mustMarshalString(normalizeMonitorHosts(runtime.MonitorHosts, cfg.MonitorSSHKeyPath))
+	}
+	if runtime.MonitorRefreshSeconds > 0 {
+		cfg.MonitorRefreshSeconds = runtime.MonitorRefreshSeconds
+	}
+	if runtime.MonitorWarnDisk > 0 {
+		cfg.MonitorWarnDisk = runtime.MonitorWarnDisk
+	}
+	if runtime.MonitorCritDisk > 0 {
+		cfg.MonitorCritDisk = runtime.MonitorCritDisk
+	}
+	if runtime.MonitorWarnMemory > 0 {
+		cfg.MonitorWarnMemory = runtime.MonitorWarnMemory
+	}
+}
+
+func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing RuntimeConfigFile) RuntimeConfigFile {
+	cfg := RuntimeConfigFile{
+		PublicURL:             cleanURL(input.PublicURL),
+		WoodpeckerServer:      cleanURL(input.WoodpeckerServer),
+		WoodpeckerPublicURL:   cleanURL(input.WoodpeckerPublicURL),
+		BeszelBaseURL:         cleanURL(input.BeszelBaseURL),
+		BeszelPublicURL:       cleanURL(input.BeszelPublicURL),
+		BeszelEmail:           strings.TrimSpace(input.BeszelEmail),
+		GrafanaPublicURL:      cleanURL(input.GrafanaPublicURL),
+		ExternalLinks:         normalizeExternalLinks(input.ExternalLinks),
+		MonitorHosts:          normalizeMonitorHosts(input.MonitorHosts, current.MonitorSSHKeyPath),
+		MonitorRefreshSeconds: clampInt(input.MonitorRefreshSeconds, 5, 300, current.MonitorRefreshSeconds),
+		MonitorWarnDisk:       clampInt(input.MonitorWarnDisk, 1, 100, current.MonitorWarnDisk),
+		MonitorCritDisk:       clampInt(input.MonitorCritDisk, 1, 100, current.MonitorCritDisk),
+		MonitorWarnMemory:     clampInt(input.MonitorWarnMemory, 1, 100, current.MonitorWarnMemory),
+	}
+	cfg.WoodpeckerToken = strings.TrimSpace(input.WoodpeckerToken)
+	if cfg.WoodpeckerToken == "" {
+		cfg.WoodpeckerToken = existing.WoodpeckerToken
+	}
+	cfg.BeszelPassword = strings.TrimSpace(input.BeszelPassword)
+	if cfg.BeszelPassword == "" {
+		cfg.BeszelPassword = existing.BeszelPassword
+	}
+	if cfg.PublicURL == "" {
+		cfg.PublicURL = current.PublicURL
+	}
+	if cfg.WoodpeckerServer == "" {
+		cfg.WoodpeckerServer = current.WoodpeckerServer
+	}
+	if cfg.WoodpeckerPublicURL == "" {
+		cfg.WoodpeckerPublicURL = current.WoodpeckerPublicURL
+	}
+	if cfg.BeszelBaseURL == "" {
+		cfg.BeszelBaseURL = current.BeszelBaseURL
+	}
+	if cfg.BeszelPublicURL == "" {
+		cfg.BeszelPublicURL = current.BeszelPublicURL
+	}
+	if cfg.GrafanaPublicURL == "" {
+		cfg.GrafanaPublicURL = current.GrafanaPublicURL
+	}
+	return cfg
+}
+
+func cleanURL(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), "/")
+}
+
+func clampInt(value int, minValue int, maxValue int, fallback int) int {
+	if value <= 0 {
+		value = fallback
+	}
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func mustMarshalString(value any) string {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
 }
 
 func (c Config) validate() error {
@@ -366,9 +589,6 @@ func (c Config) validate() error {
 	}
 	if c.SessionSecret == "" {
 		return errors.New("ZEPHYR_SESSION_SECRET is required")
-	}
-	if c.WoodpeckerToken == "" {
-		return errors.New("WOODPECKER_TOKEN is required")
 	}
 	return nil
 }
@@ -840,6 +1060,60 @@ func (a *App) users(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"user": created})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, a.setupConfigResponse(time.Now()))
+	case http.MethodPost:
+		var input RuntimeConfigInput
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		existing, err := loadRuntimeConfigFile(a.cfg.ConfigPath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		runtimeCfg := runtimeConfigFromInput(input, a.cfg, existing)
+		if err := validateRuntimeConfig(runtimeCfg); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := saveRuntimeConfigFile(a.cfg.ConfigPath, runtimeCfg); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		next := a.cfg
+		applyRuntimeConfig(&next, runtimeCfg)
+		a.cfg = next
+		a.monitor = NewMonitoringService(next, a.client)
+		_ = a.writeAudit(AuditRecord{
+			Time:      time.Now().Format(time.RFC3339),
+			UserID:    user.ID,
+			Username:  user.Username,
+			RemoteIP:  remoteIP(r),
+			TaskID:    "setup-config",
+			TaskTitle: "保存接入配置",
+			Variables: map[string]string{
+				"ZEPHYR_PUBLIC_URL":         next.PublicURL,
+				"WOODPECKER_PUBLIC_URL":     next.WoodpeckerPublicURL,
+				"ZEPHYR_BESZEL_PUBLIC_URL":  next.BeszelPublicURL,
+				"ZEPHYR_GRAFANA_PUBLIC_URL": next.GrafanaPublicURL,
+			},
+			Status: "ok",
+		})
+		writeJSON(w, a.setupConfigResponse(time.Now()))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -2102,6 +2376,233 @@ func healthStatus(ok bool, okMessage string, fallbackMessage string) map[string]
 	return map[string]string{"status": "warning", "message": fallbackMessage}
 }
 
+func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
+	hosts := parseMonitorHosts(a.cfg)
+	config := RuntimeConfigInput{
+		PublicURL:             a.cfg.PublicURL,
+		WoodpeckerServer:      a.cfg.WoodpeckerServer,
+		WoodpeckerPublicURL:   a.cfg.WoodpeckerPublicURL,
+		WoodpeckerToken:       "",
+		BeszelBaseURL:         a.cfg.BeszelBaseURL,
+		BeszelPublicURL:       a.cfg.BeszelPublicURL,
+		BeszelEmail:           a.cfg.BeszelEmail,
+		BeszelPassword:        "",
+		GrafanaPublicURL:      a.cfg.GrafanaPublicURL,
+		ExternalLinks:         a.extraExternalLinks(),
+		MonitorHosts:          hosts,
+		MonitorRefreshSeconds: a.cfg.MonitorRefreshSeconds,
+		MonitorWarnDisk:       a.cfg.MonitorWarnDisk,
+		MonitorCritDisk:       a.cfg.MonitorCritDisk,
+		MonitorWarnMemory:     a.cfg.MonitorWarnMemory,
+	}
+	return SetupConfigResponse{
+		Config: config,
+		Secrets: map[string]bool{
+			"woodpecker_token": strings.TrimSpace(a.cfg.WoodpeckerToken) != "",
+			"beszel_password":  strings.TrimSpace(a.cfg.BeszelPassword) != "",
+			"session_secret":   strings.TrimSpace(a.cfg.SessionSecret) != "",
+			"database_dsn":     strings.TrimSpace(a.cfg.DBDSN) != "",
+		},
+		Status:    a.setupStatus(hosts),
+		Commands:  a.setupCommands(hosts),
+		Docs:      setupDocLinks(),
+		UpdatedAt: now.Format(time.RFC3339),
+	}
+}
+
+func (a *App) setupStatus(hosts []MonitorHostConfig) []SetupStatusItem {
+	items := []SetupStatusItem{
+		{
+			ID:          "zephyr",
+			Title:       "Zephyr 入口",
+			Status:      setupStatusFromBool(a.cfg.PublicURL != ""),
+			Message:     fallbackText(a.cfg.PublicURL, "未配置公开访问地址"),
+			ActionLabel: "打开 Zephyr",
+			ActionURL:   a.cfg.PublicURL,
+		},
+		{
+			ID:          "auth",
+			Title:       "账号体系",
+			Status:      setupStatusFromBool(a.store != nil),
+			Message:     ternaryText(a.store != nil, "数据库账号模式已启用", "当前是共享密码模式，建议配置数据库后再给团队使用"),
+			ActionLabel: "",
+		},
+		{
+			ID:          "woodpecker",
+			Title:       "Woodpecker",
+			Status:      setupStatusFromBool(a.cfg.WoodpeckerServer != "" && a.cfg.WoodpeckerPublicURL != "" && a.cfg.WoodpeckerToken != ""),
+			Message:     setupWoodpeckerMessage(a.cfg),
+			ActionLabel: "打开 Woodpecker",
+			ActionURL:   a.cfg.WoodpeckerPublicURL,
+		},
+		{
+			ID:          "beszel",
+			Title:       "Beszel",
+			Status:      setupStatusFromBool(a.cfg.BeszelBaseURL != "" && a.cfg.BeszelPublicURL != ""),
+			Message:     setupBeszelMessage(a.cfg),
+			ActionLabel: "打开 Beszel",
+			ActionURL:   a.cfg.BeszelPublicURL,
+		},
+		{
+			ID:          "grafana",
+			Title:       "Grafana / Loki",
+			Status:      setupStatusFromBool(a.cfg.GrafanaPublicURL != ""),
+			Message:     fallbackText(a.cfg.GrafanaPublicURL, "未配置 Grafana 入口"),
+			ActionLabel: "打开 Grafana",
+			ActionURL:   a.cfg.GrafanaPublicURL,
+		},
+		{
+			ID:      "hosts",
+			Title:   "被管机器",
+			Status:  setupStatusFromBool(len(hosts) > 0),
+			Message: fmt.Sprintf("已配置 %d 台机器；业务机只需要 agent 和 SSH key，不需要运行 Zephyr", len(hosts)),
+		},
+		{
+			ID:      "tasks",
+			Title:   "部署任务",
+			Status:  setupStatusFromBool(len(a.configuredTasks()) > 0),
+			Message: fmt.Sprintf("已加载 %d 个任务/入口，可在部署任务页维护 Woodpecker 参数", len(a.configuredTasks())),
+		},
+	}
+	return items
+}
+
+func (a *App) setupCommands(hosts []MonitorHostConfig) []SetupCommand {
+	publicKey := strings.TrimSpace(readMonitorPublicKey(a.cfg.MonitorSSHKeyPath))
+	if publicKey == "" {
+		publicKey = "ssh-ed25519 AAAA... zephyr-monitor"
+	}
+	firstHost := "your-host"
+	if len(hosts) > 0 {
+		firstHost = fallbackText(hosts[0].SSHHost, hosts[0].Name)
+	}
+	return []SetupCommand{
+		{
+			ID:          "host-preflight",
+			Title:       "被管机器基础环境",
+			Description: "在每台业务机上安装 Docker 和 Compose 插件。",
+			Command: strings.TrimSpace(`sudo apt-get update
+sudo apt-get install -y ca-certificates curl git
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+docker version
+docker compose version`),
+		},
+		{
+			ID:          "monitor-key",
+			Title:       "写入 Zephyr 只读监控 SSH key",
+			Description: "在被管机器的 SSH 用户下执行。这个 key 用于资源兜底读取，不进入前端。",
+			Command: fmt.Sprintf(`mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+grep -qxF '%s' ~/.ssh/authorized_keys 2>/dev/null || echo '%s' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys`, publicKey, publicKey),
+		},
+		{
+			ID:          "beszel-agent",
+			Title:       "接入 Beszel agent",
+			Description: "优先在 Beszel 页面创建系统并复制官方 agent 命令；Zephyr 负责展示接入状态和跳转。",
+			Command:     fmt.Sprintf("# 打开 %s，在 Systems 里新增 %s，然后复制 Beszel 给出的 agent 命令到目标机器执行。", fallbackText(a.cfg.BeszelPublicURL, "Beszel"), firstHost),
+		},
+		{
+			ID:          "logs-agent",
+			Title:       "接入日志采集 agent",
+			Description: "业务机只跑采集端，把 Docker 和应用日志推到运维机 Loki；完整查询在 Grafana。",
+			Command: strings.TrimSpace(`# 推荐使用 Grafana Alloy / Promtail / Vector
+# 采集：Docker logs、Caddy/Nginx logs、应用结构化日志
+# 推送：中心 Loki
+# 完成后在 Grafana 里按 host / project / container 查询。`),
+		},
+	}
+}
+
+func setupDocLinks() []SetupDocLink {
+	return []SetupDocLink{
+		{Title: "运维架构", Description: "Zephyr、Woodpecker、Beszel、Grafana、Loki 和业务机的关系。", Path: "docs/ops-architecture.md"},
+		{Title: "迁移 Runbook", Description: "把 Zephyr 迁到专用运维/构建机的步骤和验收项。", Path: "docs/migration-runbook.md"},
+	}
+}
+
+func validateRuntimeConfig(cfg RuntimeConfigFile) error {
+	for label, value := range map[string]string{
+		"Zephyr URL":           cfg.PublicURL,
+		"Woodpecker Server":    cfg.WoodpeckerServer,
+		"Woodpecker PublicURL": cfg.WoodpeckerPublicURL,
+		"Beszel BaseURL":       cfg.BeszelBaseURL,
+		"Beszel PublicURL":     cfg.BeszelPublicURL,
+		"Grafana PublicURL":    cfg.GrafanaPublicURL,
+	} {
+		if value != "" && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+			return fmt.Errorf("%s 必须以 http:// 或 https:// 开头", label)
+		}
+	}
+	if cfg.MonitorCritDisk < cfg.MonitorWarnDisk {
+		return errors.New("磁盘严重阈值不能小于提醒阈值")
+	}
+	return nil
+}
+
+func setupStatusFromBool(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "warning"
+}
+
+func setupWoodpeckerMessage(cfg Config) string {
+	missing := []string{}
+	if cfg.WoodpeckerServer == "" {
+		missing = append(missing, "内部地址")
+	}
+	if cfg.WoodpeckerPublicURL == "" {
+		missing = append(missing, "公开入口")
+	}
+	if cfg.WoodpeckerToken == "" {
+		missing = append(missing, "API token")
+	}
+	if len(missing) > 0 {
+		return "缺少：" + strings.Join(missing, "、")
+	}
+	return fmt.Sprintf("内部 %s，入口 %s", cfg.WoodpeckerServer, cfg.WoodpeckerPublicURL)
+}
+
+func setupBeszelMessage(cfg Config) string {
+	missing := []string{}
+	if cfg.BeszelBaseURL == "" {
+		missing = append(missing, "内部地址")
+	}
+	if cfg.BeszelPublicURL == "" {
+		missing = append(missing, "公开入口")
+	}
+	if cfg.BeszelEmail == "" || cfg.BeszelPassword == "" {
+		missing = append(missing, "API 登录账号")
+	}
+	if len(missing) > 0 {
+		return "缺少：" + strings.Join(missing, "、")
+	}
+	return fmt.Sprintf("内部 %s，入口 %s", cfg.BeszelBaseURL, cfg.BeszelPublicURL)
+}
+
+func readMonitorPublicKey(privateKeyPath string) string {
+	path := strings.TrimSpace(privateKeyPath)
+	if path == "" {
+		return ""
+	}
+	for _, candidate := range []string{path + ".pub", strings.TrimSuffix(path, filepath.Ext(path)) + ".pub"} {
+		payload, err := os.ReadFile(candidate)
+		if err == nil {
+			return strings.TrimSpace(string(payload))
+		}
+	}
+	return ""
+}
+
+func ternaryText(ok bool, yes string, no string) string {
+	if ok {
+		return yes
+	}
+	return no
+}
+
 func taskWithAccessDefaults(task Task) Task {
 	if len(task.AllowedRoles) == 0 && taskRequiresAdmin(task) {
 		task.AllowedRoles = []string{"admin"}
@@ -2240,6 +2741,36 @@ func (a *App) extraExternalLinks() []ExternalLinkConfig {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows
+}
+
+func normalizeExternalLinks(rows []ExternalLinkConfig) []ExternalLinkConfig {
+	out := []ExternalLinkConfig{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		row.ID = normalizeTaskID(row.ID)
+		row.Title = strings.TrimSpace(row.Title)
+		row.URL = cleanURL(row.URL)
+		row.Description = strings.TrimSpace(row.Description)
+		row.Group = strings.TrimSpace(row.Group)
+		if row.ID == "" {
+			row.ID = normalizeTaskID(row.Title)
+		}
+		if row.ID == "" || row.URL == "" || seen[row.ID] {
+			continue
+		}
+		if row.Title == "" {
+			row.Title = row.ID
+		}
+		seen[row.ID] = true
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Group == out[j].Group {
+			return out[i].Title < out[j].Title
+		}
+		return out[i].Group < out[j].Group
+	})
+	return out
 }
 
 func (a *App) configuredTasks() []Task {

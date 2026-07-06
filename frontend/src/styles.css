@@ -219,6 +219,34 @@ body::before {
   white-space: nowrap;
 }
 
+.setup-status-card {
+  height: 100%;
+  border-color: #e6eaef;
+}
+
+.setup-status-card .ant-card-body {
+  height: 100%;
+}
+
+.setup-status-head {
+  justify-content: flex-start;
+}
+
+.setup-form-card {
+  margin-bottom: 14px;
+}
+
+.command-block {
+  margin: 0 !important;
+  padding: 10px 12px;
+  color: #263038;
+  background: #f4f6f8;
+  border: 1px solid #e4e8ec;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+}
+
 .table-section {
   padding-bottom: 18px;
   border-bottom: 1px solid #eadfd5;

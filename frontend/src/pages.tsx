@@ -8,6 +8,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   List,
   Popconfirm,
   Progress,
@@ -51,7 +52,9 @@ import type {
   Pipeline,
   PipelineStep,
   PipelineSummary,
+  RuntimeConfigInput,
   Risk,
+  SetupConfigResponse,
   StateResponse,
   Task,
   TaskConfig,
@@ -404,6 +407,11 @@ export function SettingsPage({
           ) : (
             <Alert type="info" showIcon message="当前环境未开启任务配置文件" />
           )
+        },
+        {
+          key: "setup",
+          label: "接入配置",
+          children: state.current_user.role === "admin" ? <SetupConfigPanel onReload={onReload} /> : <Alert type="info" showIcon message="接入配置只允许管理员查看和修改" />
         },
         { key: "infra", label: "基础设施入口", children: <InfrastructureLinks tasks={state.tasks || []} /> },
         { key: "audit", label: "操作历史", children: <AuditLogView records={auditRecords} loading={auditLoading} state={state} onRefresh={onAuditRefresh} /> },
@@ -1805,6 +1813,331 @@ function Users() {
   );
 }
 
+function SetupConfigPanel({ onReload }: { onReload: () => Promise<void> }) {
+  const { message } = AntApp.useApp();
+  const [form] = Form.useForm<RuntimeConfigInput>();
+  const [setup, setSetup] = useState<SetupConfigResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function loadSetup(options: { notify?: boolean } = {}) {
+    setLoading(true);
+    try {
+      const data = await api<SetupConfigResponse>("/api/setup/config");
+      setSetup(data);
+      form.setFieldsValue(normalizeSetupFormValues(data.config));
+      if (options.notify) message.success("接入配置已刷新");
+    } catch (error) {
+      message.error(errorText(error) || "接入配置加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadSetup();
+  }, []);
+
+  async function save(values: RuntimeConfigInput) {
+    setSaving(true);
+    try {
+      const payload = normalizeSetupFormValues(values);
+      const data = await api<SetupConfigResponse>("/api/setup/config", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      setSetup(data);
+      form.setFieldsValue(normalizeSetupFormValues(data.config));
+      message.success("接入配置已保存");
+      await onReload();
+    } catch (error) {
+      message.error(errorText(error) || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Space direction="vertical" size={16} className="side-stack">
+      <Alert
+        type="info"
+        showIcon
+        message="这里维护 Zephyr 的可视化接入配置"
+        description="URL、监控主机、外部入口会回显；Woodpecker token 和 Beszel 密码只显示是否已配置，留空保存会保留原值。"
+      />
+      <ProCard
+        title="接入状态"
+        extra={<Button icon={<RefreshCw size={16} />} loading={loading} onClick={() => loadSetup({ notify: true })}>刷新</Button>}
+      >
+        <Row gutter={[12, 12]}>
+          {(setup?.status || []).map((item) => (
+            <Col xs={24} md={12} xl={8} key={item.id}>
+              <Card size="small" className="setup-status-card">
+                <Space direction="vertical" size={8} className="side-stack">
+                  <Space align="center" className="setup-status-head">
+                    <Tag color={setupStatusColor(item.status)}>{setupStatusText(item.status)}</Tag>
+                    <Text strong>{item.title}</Text>
+                  </Space>
+                  <Text type="secondary">{item.message || "-"}</Text>
+                  {item.action_url && (
+                    <Button size="small" href={item.action_url} target="_blank" icon={<ExternalLink size={14} />}>
+                      {item.action_label || "打开"}
+                    </Button>
+                  )}
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </ProCard>
+
+      <Form form={form} layout="vertical" onFinish={save} disabled={loading}>
+        <ProCard title="核心服务" className="setup-form-card">
+          <Row gutter={12}>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Zephyr 公开地址" name="public_url" rules={[{ required: true, message: "请输入 Zephyr 公开地址" }]}>
+                <Input placeholder="https://deploy.example.com" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Woodpecker 内部地址" name="woodpecker_server" rules={[{ required: true, message: "请输入 Woodpecker 内部地址" }]}>
+                <Input placeholder="http://woodpecker-server:8000" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Woodpecker 公开地址" name="woodpecker_public_url" rules={[{ required: true, message: "请输入 Woodpecker 公开地址" }]}>
+                <Input placeholder="https://ci.example.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col xs={24} lg={8}>
+              <Form.Item
+                label="Woodpecker API token"
+                name="woodpecker_token"
+                extra={setup?.secrets?.woodpecker_token ? "已配置；留空保存会保留原 token。" : "未配置；保存后 Zephyr 才能触发流水线。"}
+              >
+                <Input.Password placeholder={setup?.secrets?.woodpecker_token ? "留空保留原 token" : "填入 Woodpecker token"} autoComplete="new-password" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Beszel 内部地址" name="beszel_base_url">
+                <Input placeholder="http://beszel:8090" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Beszel 公开地址" name="beszel_public_url">
+                <Input placeholder="https://beszel.example.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Beszel API 邮箱" name="beszel_email">
+                <Input placeholder="ops@example.com" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item
+                label="Beszel API 密码"
+                name="beszel_password"
+                extra={setup?.secrets?.beszel_password ? "已配置；留空保存会保留原密码。" : "未配置；配置后可优先使用 Beszel 数据。"}
+              >
+                <Input.Password placeholder={setup?.secrets?.beszel_password ? "留空保留原密码" : "填入 Beszel 密码"} autoComplete="new-password" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item label="Grafana 公开地址" name="grafana_public_url">
+                <Input placeholder="https://grafana.example.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </ProCard>
+
+        <ProCard title="监控阈值" className="setup-form-card">
+          <Row gutter={12}>
+            <Col xs={12} lg={6}>
+              <Form.Item label="刷新秒数" name="monitor_refresh_seconds">
+                <InputNumber min={5} max={300} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} lg={6}>
+              <Form.Item label="磁盘提醒 %" name="monitor_warn_disk">
+                <InputNumber min={1} max={100} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} lg={6}>
+              <Form.Item label="磁盘严重 %" name="monitor_crit_disk">
+                <InputNumber min={1} max={100} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} lg={6}>
+              <Form.Item label="内存提醒 %" name="monitor_warn_memory">
+                <InputNumber min={1} max={100} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </ProCard>
+
+        <ProCard
+          title="被管机器"
+          className="setup-form-card"
+        >
+          <Form.List name="monitor_hosts">
+            {(fields, { add, remove }) => (
+              <Space direction="vertical" size={12} className="side-stack">
+                <div>
+                  <Button icon={<Plus size={16} />} onClick={() => add({ id: "", name: "", role: "production", ssh_user: "codex", beszel_names: [], containers: [] })}>
+                    新增机器
+                  </Button>
+                </div>
+                {fields.map((field, index) => (
+                  <Card
+                    size="small"
+                    key={field.key}
+                    title={`机器 ${index + 1}`}
+                    extra={<Button size="small" danger icon={<Trash2 size={14} />} onClick={() => remove(field.name)} />}
+                  >
+                    <Row gutter={12}>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="ID" name={[field.name, "id"]} rules={[{ required: true, message: "请输入 ID" }]}>
+                          <Input placeholder="prod" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="名称" name={[field.name, "name"]} rules={[{ required: true, message: "请输入名称" }]}>
+                          <Input placeholder="生产机" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="角色" name={[field.name, "role"]}>
+                          <Input placeholder="production / builder" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="清理任务 ID" name={[field.name, "cleanup_task_id"]}>
+                          <Input placeholder="production-cleanup" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={12}>
+                      <Col xs={24} lg={8}>
+                        <Form.Item label="SSH 地址" name={[field.name, "ssh_host"]}>
+                          <Input placeholder="1.2.3.4:22" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={4}>
+                        <Form.Item label="SSH 用户" name={[field.name, "ssh_user"]}>
+                          <Input placeholder="codex" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="Beszel 匹配名" name={[field.name, "beszel_names"]}>
+                          <Select mode="tags" tokenSeparators={[","]} placeholder="prod, production" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} lg={6}>
+                        <Form.Item label="核心容器" name={[field.name, "containers"]}>
+                          <Select mode="tags" tokenSeparators={[","]} placeholder="api, mysql, redis" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Card>
+                ))}
+                {!fields.length && <Alert type="warning" showIcon message="还没有配置被管机器" description="至少保留本机或一台生产机，这样监控页才有核心资源数据。" />}
+              </Space>
+            )}
+          </Form.List>
+        </ProCard>
+
+        <ProCard
+          title="外部入口"
+          className="setup-form-card"
+        >
+          <Form.List name="external_links">
+            {(fields, { add, remove }) => (
+              <Space direction="vertical" size={10} className="side-stack">
+                <div>
+                  <Button icon={<Plus size={16} />} onClick={() => add({ id: "", title: "", url: "", group: "基础设施" })}>
+                    新增入口
+                  </Button>
+                </div>
+                {fields.map((field) => (
+                  <Card size="small" key={field.key}>
+                    <Row gutter={12}>
+                      <Col xs={24} md={4}>
+                        <Form.Item label="ID" name={[field.name, "id"]}>
+                          <Input placeholder="grafana" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={5}>
+                        <Form.Item label="标题" name={[field.name, "title"]}>
+                          <Input placeholder="Grafana" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={5}>
+                        <Form.Item label="分组" name={[field.name, "group"]}>
+                          <Input placeholder="观测" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label="地址" name={[field.name, "url"]}>
+                          <Input placeholder="https://grafana.example.com" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={2}>
+                        <Form.Item label=" ">
+                          <Button danger icon={<Trash2 size={14} />} onClick={() => remove(field.name)} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Form.Item label="说明" name={[field.name, "description"]}>
+                      <Input placeholder="查看日志、指标、链路和仪表盘" />
+                    </Form.Item>
+                  </Card>
+                ))}
+                {!fields.length && <Text type="secondary">暂无额外入口；Zephyr、Woodpecker、Beszel、Grafana 会自动显示。</Text>}
+              </Space>
+            )}
+          </Form.List>
+        </ProCard>
+
+        <Button type="primary" htmlType="submit" loading={saving} size="large">
+          保存接入配置
+        </Button>
+      </Form>
+
+      <ProCard title="业务机接入命令">
+        <Row gutter={[12, 12]}>
+          {(setup?.commands || []).map((item) => (
+            <Col xs={24} lg={12} key={item.id}>
+              <Card size="small" title={item.title}>
+                <Space direction="vertical" size={8} className="side-stack">
+                  <Text type="secondary">{item.description}</Text>
+                  <Typography.Paragraph copyable className="command-block">
+                    {item.command}
+                  </Typography.Paragraph>
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </ProCard>
+
+      <ProCard title="文档">
+        <List
+          dataSource={setup?.docs || []}
+          renderItem={(item) => (
+            <List.Item>
+              <List.Item.Meta title={item.title} description={`${item.description} · ${item.path}`} />
+            </List.Item>
+          )}
+        />
+      </ProCard>
+    </Space>
+  );
+}
+
 function TaskConfigView({
   tasks,
   config,
@@ -1940,6 +2273,64 @@ function deploymentPipelineURL(base: string, row: DeploymentStatus): string {
 
 function auditPipelineURL(base: string, row: AuditRecord): string {
   return `${base.replace(/\/+$/, "")}/repos/${row.repo_id}/pipeline/${row.pipeline}`;
+}
+
+function normalizeSetupFormValues(values: RuntimeConfigInput): RuntimeConfigInput {
+  const externalLinks = (values.external_links || []).map((item) => ({
+    id: String(item.id || "").trim(),
+    title: String(item.title || "").trim(),
+    url: String(item.url || "").trim(),
+    group: String(item.group || "").trim(),
+    description: String(item.description || "").trim()
+  })).filter((item) => item.url || item.title || item.id);
+  const monitorHosts = (values.monitor_hosts || []).map((item) => ({
+    id: String(item.id || "").trim(),
+    name: String(item.name || "").trim(),
+    role: String(item.role || "").trim(),
+    ssh_host: String(item.ssh_host || item.address || "").trim(),
+    ssh_user: String(item.ssh_user || "").trim(),
+    ssh_key_path: String(item.ssh_key_path || "").trim(),
+    cleanup_task_id: String(item.cleanup_task_id || "").trim(),
+    beszel_names: normalizeStringArray(item.beszel_names),
+    containers: normalizeStringArray(item.containers),
+    container_groups: item.container_groups || []
+  })).filter((item) => item.id || item.name);
+  return {
+    public_url: String(values.public_url || "").trim(),
+    woodpecker_server: String(values.woodpecker_server || "").trim(),
+    woodpecker_public_url: String(values.woodpecker_public_url || "").trim(),
+    woodpecker_token: String(values.woodpecker_token || "").trim(),
+    beszel_base_url: String(values.beszel_base_url || "").trim(),
+    beszel_public_url: String(values.beszel_public_url || "").trim(),
+    beszel_email: String(values.beszel_email || "").trim(),
+    beszel_password: String(values.beszel_password || "").trim(),
+    grafana_public_url: String(values.grafana_public_url || "").trim(),
+    external_links: externalLinks,
+    monitor_hosts: monitorHosts,
+    monitor_refresh_seconds: Number(values.monitor_refresh_seconds || 20),
+    monitor_warn_disk: Number(values.monitor_warn_disk || 80),
+    monitor_crit_disk: Number(values.monitor_crit_disk || 90),
+    monitor_warn_memory: Number(values.monitor_warn_memory || 80)
+  };
+}
+
+function normalizeStringArray(values?: string[]): string[] {
+  return (values || [])
+    .flatMap((item) => String(item || "").split(","))
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function setupStatusColor(status: string): string {
+  if (status === "ok") return "success";
+  if (status === "error" || status === "critical") return "error";
+  return "warning";
+}
+
+function setupStatusText(status: string): string {
+  if (status === "ok") return "已就绪";
+  if (status === "error" || status === "critical") return "异常";
+  return "待配置";
 }
 
 export function branchOptionsForTask(state: StateResponse, task: Task): { value: string; label: string }[] {

@@ -180,6 +180,77 @@ export type MonitoringAlert = {
   message: string;
 };
 
+export type ExternalLinkConfig = {
+  id: string;
+  title: string;
+  url: string;
+  description?: string;
+  group?: string;
+};
+
+export type MonitorHostConfig = {
+  id: string;
+  name: string;
+  role?: string;
+  ssh_host?: string;
+  address?: string;
+  ssh_user?: string;
+  ssh_key_path?: string;
+  beszel_names?: string[];
+  containers?: string[];
+  container_groups?: string[][];
+  cleanup_task_id?: string;
+};
+
+export type RuntimeConfigInput = {
+  public_url: string;
+  woodpecker_server: string;
+  woodpecker_public_url: string;
+  woodpecker_token?: string;
+  beszel_base_url: string;
+  beszel_public_url: string;
+  beszel_email?: string;
+  beszel_password?: string;
+  grafana_public_url: string;
+  external_links: ExternalLinkConfig[];
+  monitor_hosts: MonitorHostConfig[];
+  monitor_refresh_seconds: number;
+  monitor_warn_disk: number;
+  monitor_crit_disk: number;
+  monitor_warn_memory: number;
+};
+
+export type SetupStatusItem = {
+  id: string;
+  title: string;
+  status: "ok" | "warning" | "error" | string;
+  message: string;
+  action_label?: string;
+  action_url?: string;
+};
+
+export type SetupCommand = {
+  id: string;
+  title: string;
+  description: string;
+  command: string;
+};
+
+export type SetupDocLink = {
+  title: string;
+  description: string;
+  path: string;
+};
+
+export type SetupConfigResponse = {
+  config: RuntimeConfigInput;
+  secrets: Record<string, boolean>;
+  status: SetupStatusItem[];
+  commands: SetupCommand[];
+  docs: SetupDocLink[];
+  updated_at: string;
+};
+
 export type RunResult = {
   task: Task;
   pipeline: Pipeline;
