@@ -44,3 +44,29 @@ func TestParseSSHMonitorOutputBlueGreenGroupMissingOnlyWhenAllCandidatesMissing(
 		t.Fatalf("second row should be missing logical web group: %+v", rows[1])
 	}
 }
+
+func TestMatchBeszelHostDoesNotUseGenericBuilderAlias(t *testing.T) {
+	service := &MonitoringService{hosts: []MonitorHostConfig{
+		{
+			ID:          "estar-production",
+			Name:        "e站生产机 / 旧构建机",
+			BeszelNames: []string{"xiezuomao-builder", "builder", "构建机"},
+		},
+		{
+			ID:          "ops-test-builder",
+			Name:        "测试/构建机",
+			BeszelNames: []string{"zephyr-ops-builder", "zephyr", "111.230.32.26"},
+		},
+	}}
+
+	cfg, ok := service.matchBeszelHost(map[string]any{
+		"name": "zephyr-ops-builder",
+		"host": "111.230.32.26",
+	})
+	if !ok {
+		t.Fatal("expected zephyr host to match")
+	}
+	if cfg.ID != "ops-test-builder" {
+		t.Fatalf("matched host = %q, want ops-test-builder", cfg.ID)
+	}
+}

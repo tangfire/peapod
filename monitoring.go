@@ -360,13 +360,40 @@ func (m *MonitoringService) matchBeszelHost(item map[string]any) (MonitorHostCon
 		for _, name := range names {
 			needle := normalizeMonitorName(name)
 			for _, candidate := range candidates {
-				if needle != "" && candidate != "" && (needle == candidate || strings.Contains(candidate, needle) || strings.Contains(needle, candidate)) {
+				if needle != "" && candidate != "" && needle == candidate {
+					return cfg, true
+				}
+			}
+		}
+	}
+	for _, cfg := range m.hosts {
+		names := append([]string{cfg.ID, cfg.Name}, cfg.BeszelNames...)
+		for _, name := range names {
+			needle := normalizeMonitorName(name)
+			if !allowFuzzyBeszelMatch(needle) {
+				continue
+			}
+			for _, candidate := range candidates {
+				if candidate != "" && (strings.Contains(candidate, needle) || strings.Contains(needle, candidate)) {
 					return cfg, true
 				}
 			}
 		}
 	}
 	return MonitorHostConfig{}, false
+}
+
+func allowFuzzyBeszelMatch(name string) bool {
+	if len(name) < 10 {
+		return false
+	}
+	switch name {
+	case "prod", "production", "builder", "local", "localhost":
+		return false
+	case "生产机", "构建机", "本机":
+		return false
+	}
+	return true
 }
 
 func enrichHostFromBeszel(host *MonitoringHost, item map[string]any) {
