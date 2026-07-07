@@ -1827,10 +1827,10 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
               onChange={(event) => setContainerSearch(event.target.value)}
             />
             <div className="log-source-summary">
-              <Text type="secondary">已选 {selectedSet.size} 个，最多 {summary?.limits?.max_containers || 10} 个</Text>
+              <Text type="secondary">已选 {selectedSet.size}/{summary?.limits?.max_containers || 10}</Text>
               {selectedLogContainers.length > 0 && (
                 <Button size="small" onClick={() => runQuery(form.getFieldsValue())} loading={queryLoading}>
-                  查询所选
+                  查询
                 </Button>
               )}
             </div>
@@ -1844,7 +1844,7 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
                       <Tag>{group.items.length}</Tag>
                     </Space>
                     <Button size="small" type="link" onClick={() => selectHostContainers(group.host)}>
-                      选主机
+                      全选
                     </Button>
                   </div>
                   <div className="log-source-items">
