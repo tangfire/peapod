@@ -652,6 +652,18 @@ body {
   max-width: 270px;
 }
 
+.deploy-intro-actions {
+  justify-content: flex-end;
+}
+
+.deploy-intro-actions .ant-segmented {
+  background: #eef2ea;
+}
+
+.deploy-workspace-card .ant-pro-card-body {
+  padding-top: 12px !important;
+}
+
 .deployment-verify-note,
 .pipeline-variable-hint {
   display: inline-block;
@@ -834,6 +846,26 @@ body {
 
 .run-context {
   margin: 12px 0 4px;
+}
+
+.task-detail-panel {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 2px;
+}
+
+.task-variable-block {
+  margin: 0;
+  padding: 10px 12px;
+  color: #364238;
+  background: #f8faf7;
+  border: 1px solid #e2e8dd;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .run-queue-alert {

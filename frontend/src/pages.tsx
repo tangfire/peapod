@@ -337,6 +337,9 @@ export function DeployPage({
   onRefresh: () => void;
 }) {
   const [filters, setFilters] = useState({ group: "", repo: "", risk: "", q: "" });
+  const [view, setView] = useState<"projects" | "actions">("projects");
+  const deploymentTaskIDs = useMemo(() => new Set(deploymentManagedTaskIDs(tasks || [], rows || [])), [tasks, rows]);
+  const maintenanceCount = (tasks || []).filter((item) => !item.external_url && !deploymentTaskIDs.has(item.id)).length;
   const verifiedCount = rows.filter((row) => row.deploy_verified).length;
   const attentionCount = rows.filter((row) => {
     const status = row.latest_status || row.last_status;
@@ -352,37 +355,50 @@ export function DeployPage({
           { label: "已验证", value: `${verifiedCount}/${rows.length || 0}`, tone: verifiedCount === rows.length && rows.length ? "success" : "normal" },
           { label: "需关注", value: String(attentionCount), tone: attentionCount ? "danger" : "success" }
         ]}
-        actions={<Button icon={<RefreshCw size={16} />} loading={refreshing} onClick={onRefresh}>刷新</Button>}
+        actions={
+          <Space className="deploy-intro-actions">
+            <Segmented
+              value={view}
+              onChange={(next) => setView(next as "projects" | "actions")}
+              options={[
+                { label: `项目发布 ${rows.length || 0}`, value: "projects" },
+                { label: `维护动作 ${maintenanceCount}`, value: "actions" }
+              ]}
+            />
+            <Button icon={<RefreshCw size={16} />} loading={refreshing} onClick={onRefresh}>刷新</Button>
+          </Space>
+        }
       />
       <ProCard
+        className="deploy-workspace-card"
         title={
           <Space size={8}>
-            <GitBranch size={16} />
-            <span>项目状态</span>
+            {view === "projects" ? <GitBranch size={16} /> : <Play size={16} />}
+            <span>{view === "projects" ? "项目发布" : "维护动作库"}</span>
           </Space>
         }
-      >
-        <DeploymentStatusTable
-          rows={rows}
-          woodpecker={woodpecker}
-          nowMs={nowMs}
-          tasks={tasks}
-          currentUser={currentUser}
-          triggeringTaskIds={triggeringTaskIds}
-          onRun={onRun}
-        />
-      </ProCard>
-      <ProCard
-        title={
-          <Space size={8}>
-            <Play size={16} />
-            <span>维护动作</span>
-          </Space>
+        extra={
+          <Text type="secondary">
+            {view === "projects" ? "高频上线入口：确认版本、部署、回退、打开流水线" : "低频维护入口：清理、重启、刷新观测；变量和确认词已收进详情"}
+          </Text>
         }
-        extra={<Text type="secondary">部署/回退已收敛到项目状态表</Text>}
       >
-        <TaskFilters state={state} value={filters} onChange={setFilters} />
-        <TaskTable state={state} filters={filters} triggeringTaskIds={triggeringTaskIds} onRun={onRun} />
+        {view === "projects" ? (
+          <DeploymentStatusTable
+            rows={rows}
+            woodpecker={woodpecker}
+            nowMs={nowMs}
+            tasks={tasks}
+            currentUser={currentUser}
+            triggeringTaskIds={triggeringTaskIds}
+            onRun={onRun}
+          />
+        ) : (
+          <>
+            <TaskFilters state={state} value={filters} onChange={setFilters} />
+            <TaskTable state={state} filters={filters} triggeringTaskIds={triggeringTaskIds} onRun={onRun} />
+          </>
+        )}
       </ProCard>
     </Space>
   );
@@ -608,12 +624,12 @@ function TaskTable({
       if (!haystack.includes(q)) return false;
     }
     return true;
-  });
+  }).sort(taskLibrarySort);
   const columns: ProColumns<Task>[] = [
     {
       title: "动作",
       dataIndex: "title",
-      width: 260,
+      width: 300,
       render: (_, row) => (
         <Space direction="vertical" size={0} className="table-cell-stack">
           <Text strong ellipsis={{ tooltip: productText(row.title) }}>{productText(row.title)}</Text>
@@ -622,28 +638,33 @@ function TaskTable({
       )
     },
     {
-      title: "归属",
-      width: 220,
+      title: "上下文",
+      width: 260,
       render: (_, row) => (
         <Space direction="vertical" size={0} className="table-cell-stack">
           <Text ellipsis={{ tooltip: taskGroupLabel(state, row) }}>{taskGroupLabel(state, row)}</Text>
-          <Text type="secondary" ellipsis={{ tooltip: repoName(state, row) }}>{repoName(state, row)}</Text>
+          <Text type="secondary" ellipsis={{ tooltip: repoName(state, row) }}>{repoName(state, row)} · {row.branch || "main"}</Text>
         </Space>
       )
     },
     {
-      title: "默认",
+      title: "关键参数",
+      width: 260,
       render: (_, row) => (
         <Space direction="vertical" size={0} className="table-cell-stack">
-          <Text>{row.branch || "main"}</Text>
-          {pipelineVariableHint(taskToPipelinePreview(state, row)) && <Text type="secondary">{pipelineVariableHint(taskToPipelinePreview(state, row))}</Text>}
-          {row.confirm_text && <Text type="secondary">确认：{row.confirm_text}</Text>}
+          <Text ellipsis={{ tooltip: pipelineTaskText(taskToPipelinePreview(state, row)) }}>{pipelineTaskText(taskToPipelinePreview(state, row))}</Text>
+          {pipelineVariableHint(taskToPipelinePreview(state, row)) && (
+            <Tooltip title={pipelineVariableHint(taskToPipelinePreview(state, row))}>
+              <Text type="secondary" className="pipeline-variable-hint">{pipelineVariableHint(taskToPipelinePreview(state, row))}</Text>
+            </Tooltip>
+          )}
+          {row.confirm_text && <Text type="secondary">确认词：{row.confirm_text}</Text>}
         </Space>
       )
     },
     {
       title: "风险",
-      width: 120,
+      width: 96,
       render: (_, row) => (
         <Space direction="vertical" size={2}>
           <Tag color={riskColors[row.risk] || "default"}>{riskLabel(row.risk)}</Tag>
@@ -653,7 +674,7 @@ function TaskTable({
     },
     {
       title: "",
-      width: 190,
+      width: 150,
       render: (_, row) => {
         const triggering = triggeringTaskIDSet.has(row.id);
         const allowed = canRunTask(state.current_user, row);
@@ -682,14 +703,24 @@ function TaskTable({
       <ProTable<Task>
         className="desktop-task-table"
         rowKey="id"
-        size="middle"
+        size="small"
         columns={columns}
         dataSource={data}
         search={false}
         options={false}
         tableAlertRender={false}
-        pagination={false}
-        scroll={{ x: 860 }}
+        pagination={{
+          pageSize: 8,
+          showSizeChanger: true,
+          pageSizeOptions: [8, 16, 32],
+          showTotal: (total) => `共 ${total} 个动作`
+        }}
+        scroll={{ x: 980 }}
+        tableLayout="fixed"
+        expandable={{
+          expandedRowRender: (row) => <TaskDetailPanel state={state} task={row} />,
+          rowExpandable: () => true
+        }}
       />
       <List
         className="mobile-task-list"
@@ -732,6 +763,25 @@ function TaskTable({
         )}
       />
     </>
+  );
+}
+
+function TaskDetailPanel({ state, task }: { state: StateResponse; task: Task }) {
+  const variables = safeVariablesTextForDisplay(task.variables || {});
+  return (
+    <div className="task-detail-panel">
+      <Descriptions size="small" column={{ xs: 1, md: 2 }} bordered>
+        <Descriptions.Item label="任务 ID">{task.id}</Descriptions.Item>
+        <Descriptions.Item label="仓库">{repoName(state, task)}</Descriptions.Item>
+        <Descriptions.Item label="模块">{taskGroupLabel(state, task)}</Descriptions.Item>
+        <Descriptions.Item label="默认分支">{task.branch || "main"}</Descriptions.Item>
+        <Descriptions.Item label="确认词">{task.confirm_text || "无需确认词"}</Descriptions.Item>
+        <Descriptions.Item label="权限">{(task.allowed_roles || []).join("、") || "所有登录用户"}</Descriptions.Item>
+      </Descriptions>
+      {variables && (
+        <pre className="task-variable-block">{variables}</pre>
+      )}
+    </div>
   );
 }
 
@@ -882,9 +932,9 @@ function DeploymentStatusTable({
             <Text type="warning">实际：{row.actual_commit.slice(0, 8)}</Text>
           )}
           <Text type="secondary" ellipsis={{ tooltip: row.last_deployed_at ? `${formatUnixTime(row.last_deployed_at)} · ${deployedAgeText(row.last_deployed_at, nowMs)}` : `配置：${row.configured_branch || "main"}` }}>{row.last_deployed_at ? `${formatUnixTime(row.last_deployed_at)} · ${deployedAgeText(row.last_deployed_at, nowMs)}` : `配置：${row.configured_branch || "main"}`}</Text>
-          {row.deploy_verify_message && (
+          {row.deploy_verify_message && !row.deploy_verified && (
             <Tooltip title={row.deploy_verify_message}>
-              <Text className="deployment-verify-note" type={row.deploy_verified ? "secondary" : "warning"}>{shortDeploymentVerifyMessage(row)}</Text>
+              <Tag className="deployment-verify-note" color={deployVerifyColor(row)}>{shortDeploymentVerifyMessage(row)}</Tag>
             </Tooltip>
           )}
         </Space>
@@ -4175,7 +4225,10 @@ function shortDeploymentVerifyMessage(row: DeploymentStatus): string {
   if (!row.deploy_verify_message) return "";
   if (row.deploy_verified) return "版本和健康检查已通过";
   if (row.deploy_verify_status === "pipeline_only") return "构建成功，部署未验证";
-  return row.deploy_verify_message.length > 32 ? `${row.deploy_verify_message.slice(0, 32)}...` : row.deploy_verify_message;
+  if (row.deploy_verify_status === "marker_missing") return "Marker 读取失败";
+  if (row.deploy_verify_status === "marker_mismatch") return "版本不一致";
+  if (row.deploy_verify_status === "health_failed") return "健康检查失败";
+  return row.deploy_verify_message.length > 18 ? `${row.deploy_verify_message.slice(0, 18)}...` : row.deploy_verify_message;
 }
 
 function commitLooksSame(left?: string, right?: string): boolean {
@@ -4183,6 +4236,19 @@ function commitLooksSame(left?: string, right?: string): boolean {
   const b = (right || "").trim().toLowerCase();
   if (!a || !b) return false;
   return a.startsWith(b) || b.startsWith(a);
+}
+
+function taskLibrarySort(a: Task, b: Task): number {
+  const riskRank: Record<string, number> = { danger: 0, warning: 1, normal: 2, link: 3 };
+  const risk = (riskRank[a.risk] ?? 9) - (riskRank[b.risk] ?? 9);
+  if (risk !== 0) return risk;
+  const group = taskGroupSortText(a).localeCompare(taskGroupSortText(b), "zh-CN");
+  if (group !== 0) return group;
+  return productText(a.title).localeCompare(productText(b.title), "zh-CN");
+}
+
+function taskGroupSortText(task: Task): string {
+  return cleanGroupLabel(task.group) || String(task.repo_name || task.repo_id || "");
 }
 
 export function canRunTask(user: User, task: Task): boolean {
