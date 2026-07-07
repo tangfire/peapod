@@ -545,16 +545,20 @@ function DeployObjectListTable({
 }) {
   const columns: ProColumns<DeployObject>[] = [
     {
-      title: "S",
-      width: 58,
+      title: <Tooltip title="最近一次流水线或部署验证状态">状态</Tooltip>,
+      width: 76,
       align: "center",
       render: (_, row) => <DeployObjectHealthMark item={row} />
     },
     {
-      title: "W",
-      width: 58,
+      title: <Tooltip title="对象近期稳定性，结合失败、运行中和需关注项判断">健康度</Tooltip>,
+      width: 88,
       align: "center",
-      render: (_, row) => <span className={`deploy-weather deploy-weather-${row.risk}`} />
+      render: (_, row) => (
+        <Tooltip title={deployObjectWeatherText(row)}>
+          <span className={`deploy-weather deploy-weather-${row.risk}`} />
+        </Tooltip>
+      )
     },
     {
       title: "名称",
@@ -709,7 +713,28 @@ function DeployObjectDetailView({
 function DeployObjectHealthMark({ item }: { item: DeployObject }) {
   const latest = item.pipelines[0];
   const status = latest?.status || (item.deployment?.deploy_verified ? "success" : item.risk === "danger" ? "failure" : "pending");
-  return <span className={`deploy-health deploy-health-${status === "success" ? "success" : ["failure", "error", "killed"].includes(status) ? "failure" : ["running", "pending"].includes(status) ? "running" : "unknown"}`} />;
+  const tone = status === "success" ? "success" : ["failure", "error", "killed"].includes(status) ? "failure" : ["running", "pending"].includes(status) ? "running" : "unknown";
+  return (
+    <Tooltip title={deployObjectHealthText(status)}>
+      <span className={`deploy-health deploy-health-${tone}`} />
+    </Tooltip>
+  );
+}
+
+function deployObjectHealthText(status: string): string {
+  if (status === "success") return "最近一次流水线成功";
+  if (["failure", "error"].includes(status)) return "最近一次流水线失败";
+  if (status === "killed") return "最近一次流水线已取消";
+  if (status === "running") return "流水线运行中";
+  if (status === "pending") return "流水线排队中或等待验证";
+  return "状态未知";
+}
+
+function deployObjectWeatherText(item: DeployObject): string {
+  if (item.risk === "danger") return "健康度较差：有失败、异常或高风险动作";
+  if (item.risk === "warning") return "需要关注：有运行中、未验证或提醒项";
+  if (item.risk === "link") return "外部入口或链接类对象";
+  return "健康度正常";
 }
 
 function DeployObjectPrimaryRunButton({ item, currentUser, triggeringTaskIDSet, onRun }: { item: DeployObject; currentUser: User; triggeringTaskIDSet: Set<string>; onRun: (task: Task) => void }) {
