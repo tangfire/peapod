@@ -50,7 +50,7 @@ Peapod 也支持 SSH 只读兜底，用于 Beszel 不可用时读取 `df`、`fre
 
 ### 日志
 
-轻量方案使用 Dozzle 直接查看 Docker 容器实时日志。它不建立集中日志库，也不要求业务机安装日志采集 agent，适合小机器、刚上线阶段和临时排障。
+轻量方案使用 Dozzle 直接查看 Docker 当前仍保留的容器日志，并实时跟随新日志。它不建立集中日志库，也不要求业务机安装日志采集 agent，适合小机器、刚上线阶段和临时排障。
 
 ```text
 运维机 Docker socket -> Dozzle -> Peapod 入口 / Dozzle 详情

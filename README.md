@@ -7,7 +7,7 @@ The default lightweight stack is:
 - Peapod: operations cockpit and task registry
 - Woodpecker: CI/CD runner and manual deployment executor
 - Beszel: host and container resource visibility
-- Dozzle: live Docker log viewer without a central log database
+- Dozzle: Docker-retained logs and live tailing without a central log database
 
 The optional full observability stack is:
 
@@ -187,7 +187,7 @@ After that, daily operations should happen inside Peapod:
 - check host CPU, memory, disk, containers
 - open Woodpecker/Beszel/Dozzle/Grafana only for deeper details
 
-For small machines, keep the default lightweight profile first. It uses Beszel for resource curves and Dozzle for live container logs. Enable the `observability` profile only when you need searchable log history, metrics retention, traces, or Grafana alerts.
+For small machines, keep the default lightweight profile first. It uses Beszel for resource curves and Dozzle for Docker-retained container logs plus live tailing. Enable the `observability` profile only when you need searchable log history across hosts, metrics retention, traces, or Grafana alerts.
 
 ## Boundary
 

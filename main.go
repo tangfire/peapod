@@ -3064,7 +3064,7 @@ chmod 600 ~/.ssh/authorized_keys`, publicKey, publicKey),
 		{
 			ID:          "logs-agent",
 			Title:       "接入日志采集 agent",
-			Description: "轻量模式先用 Dozzle 看实时日志；需要历史检索时，业务机再跑采集端推到运维机 Loki。",
+			Description: "轻量模式先用 Dozzle 看 Docker 已保留日志并实时跟随；需要跨机器历史检索时，业务机再跑采集端推到运维机 Loki。",
 			Command: strings.TrimSpace(`# 推荐使用 Grafana Alloy / Promtail / Vector
 # 采集：Docker logs、Caddy/Nginx logs、应用结构化日志
 # 推送：中心 Loki
@@ -3258,7 +3258,7 @@ func (a *App) externalLinkTasks() []Task {
 	}
 	add("zephyr-open", "打开 Peapod", "回到运维驾驶舱入口。", a.cfg.PublicURL)
 	add("woodpecker-open", "打开 Woodpecker", "查看完整流水线、日志和仓库配置。", a.cfg.WoodpeckerPublicURL)
-	add("dozzle-open", "打开 Dozzle", "轻量查看本机 Docker 容器实时日志，不落地集中日志库。", a.cfg.DozzlePublicURL)
+	add("dozzle-open", "打开 Dozzle", "轻量查看本机 Docker 已保留日志并实时跟随，不落地集中日志库。", a.cfg.DozzlePublicURL)
 	add("grafana-open", "打开 Grafana", "查看日志、指标、链路和仪表盘。", a.cfg.GrafanaPublicURL)
 	add("beszel-open", "打开 Beszel", "查看机器资源、磁盘、Docker 容器和资源曲线。", a.cfg.BeszelPublicURL)
 	for _, link := range a.extraExternalLinks() {
@@ -3937,7 +3937,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
           <tbody>
             <tr><td>Woodpecker</td><td>流水线执行、取消、日志</td><td><code>WOODPECKER_SERVER</code> / <code>WOODPECKER_TOKEN</code></td></tr>
             <tr><td>Beszel</td><td>机器资源和容器状态</td><td><code>ZEPHYR_BESZEL_*</code></td></tr>
-            <tr><td>Dozzle</td><td>轻量实时 Docker 日志</td><td><code>ZEPHYR_DOZZLE_PUBLIC_URL</code></td></tr>
+            <tr><td>Dozzle</td><td>轻量查看 Docker 已保留日志并实时跟随</td><td><code>ZEPHYR_DOZZLE_PUBLIC_URL</code></td></tr>
             <tr><td>Grafana</td><td>完整历史日志、指标、链路面板</td><td><code>ZEPHYR_GRAFANA_PUBLIC_URL</code></td></tr>
           </tbody>
         </table>

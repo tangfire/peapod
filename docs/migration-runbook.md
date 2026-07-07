@@ -214,7 +214,7 @@ docker compose start woodpecker-server woodpecker-agent
 
 ### 轻量日志：Dozzle
 
-默认 compose 会启动 Dozzle，它通过 Docker socket 查看运维机本机容器实时日志，不迁历史数据。建议只通过内网、反代和登录保护暴露：
+默认 compose 会启动 Dozzle，它通过 Docker socket 查看运维机本机 Docker 当前仍保留的容器日志，并实时跟随新日志。它不迁历史数据、不建立集中日志库。建议只通过内网、反代和登录保护暴露：
 
 ```env
 DOZZLE_BIND=127.0.0.1
@@ -280,7 +280,7 @@ curl -I https://grafana.example.com
 - Peapod 可以打开 Woodpecker、Beszel、Dozzle；完整观测方案下也可以打开 Grafana。
 - 写书猫部署任务可以触发，并能跳转到 Woodpecker 对应流水线。
 - 失败流水线能在 Peapod 看到关键错误摘要。
-- 轻量方案下，Dozzle 能查看运维机本机容器实时日志。
+- 轻量方案下，Dozzle 能查看运维机本机 Docker 已保留日志并实时跟随新日志。
 - 完整观测方案下，生产机和业务机日志能在 Grafana/Loki 搜索。
 - 清理磁盘任务有确认框、审计记录，并且不会清理业务数据目录。
 - 回退任务可以看到上一成功版本。

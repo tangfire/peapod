@@ -2301,7 +2301,7 @@ function SetupConfigPanel({ onReload }: { onReload: () => Promise<void> }) {
               </Form.Item>
             </Col>
             <Col xs={24} lg={8}>
-              <Form.Item label="Dozzle 公开地址" name="dozzle_public_url" extra="轻量日志入口：实时查看 Docker logs，不落地集中日志库。">
+              <Form.Item label="Dozzle 公开地址" name="dozzle_public_url" extra="轻量日志入口：查看 Docker 已保留日志，并实时跟随新日志，不落地集中日志库。">
                 <Input placeholder="https://logs.example.com" />
               </Form.Item>
             </Col>
