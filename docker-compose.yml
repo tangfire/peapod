@@ -19,6 +19,7 @@ services:
       - "${PEAPOD_BIND:-127.0.0.1}:${PEAPOD_PORT:-8095}:8095"
     volumes:
       - ./data/peapod:/data
+      - ${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}:/opt:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

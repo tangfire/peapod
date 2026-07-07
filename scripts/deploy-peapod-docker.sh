@@ -87,7 +87,7 @@ if [ ! -f "$DEPLOY_DIR/.env" ]; then
   echo "created $DEPLOY_DIR/.env from .env.example; update secrets before production use" >&2
 fi
 
-mkdir -p "$DEPLOY_DIR/data/peapod/ssh" "$DEPLOY_DIR/.deploy"
+mkdir -p "$DEPLOY_DIR/data/peapod/ssh" "$DEPLOY_DIR/.deploy" "${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}"
 chown -R "$owner_group" "$DEPLOY_DIR" 2>/dev/null || true
 
 compose build "$COMPOSE_SERVICE"

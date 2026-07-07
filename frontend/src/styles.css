@@ -1033,8 +1033,36 @@ body {
   border-radius: 8px;
 }
 
-.deploy-object-alert {
-  margin: -2px 0 0;
+.deploy-verify-inline {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid #e6ece2;
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.deploy-verify-inline-success {
+  border-left-color: #5ea53a;
+  background: #f4f9f1;
+}
+
+.deploy-verify-inline-warning {
+  border-left-color: #d99717;
+  background: #fffaf0;
+}
+
+.deploy-verify-inline-danger {
+  border-left-color: #d14343;
+  background: #fff5f5;
+}
+
+.deploy-verify-inline-muted {
+  border-left-color: #9ca3af;
+}
+
+.deploy-verify-inline-copy {
+  min-width: 0;
 }
 
 .deploy-object-pipeline-table .ant-pro-card-body {

@@ -40,6 +40,7 @@ import {
   Gauge,
   HardDrive,
   Home,
+  Info,
   MemoryStick,
   Network,
   Play,
@@ -798,6 +799,21 @@ function DeployObjectStatusStrip({ item, state, nowMs }: { item: DeployObject; s
   );
 }
 
+function DeployVerifyInlineNotice({ row }: { row: DeploymentStatus }) {
+  const tone = deployVerifyTone(row);
+  return (
+    <div className={`deploy-verify-inline deploy-verify-inline-${tone}`}>
+      <Space size={8} align="start">
+        <Info size={15} />
+        <Space direction="vertical" size={1} className="deploy-verify-inline-copy">
+          <Text strong>{shortDeploymentVerifyMessage(row)}</Text>
+          <Text type="secondary" ellipsis={{ tooltip: row.deploy_verify_message }}>{normalizeDeployVerifyMessage(row.deploy_verify_message || "")}</Text>
+        </Space>
+      </Space>
+    </div>
+  );
+}
+
 function DeployObjectVersionCell({ item, state, nowMs }: { item: DeployObject; state: StateResponse; nowMs: number }) {
   if (item.deployment) {
     return (
@@ -914,15 +930,7 @@ function DeployObjectExpandedPanel({
           ) : null}
         </div>
       )}
-      {item.deployment?.deploy_verify_message && !item.deployment.deploy_verified && (
-        <Alert
-          className="deploy-object-alert"
-          type={deployVerifyColor(item.deployment) === "error" ? "error" : "warning"}
-          showIcon
-          message={shortDeploymentVerifyMessage(item.deployment)}
-          description={item.deployment.deploy_verify_message}
-        />
-      )}
+      {item.deployment?.deploy_verify_message && <DeployVerifyInlineNotice row={item.deployment} />}
       <div className="deploy-object-section-head">
         <Space size={8}>
           <Activity size={16} />
@@ -4911,9 +4919,10 @@ function deployVerifyColor(row: DeploymentStatus): string {
   if (row.deploy_verified) return "success";
   switch (row.deploy_verify_status) {
     case "pipeline_only":
+    case "marker_missing":
+    case "marker_unavailable":
       return "gold";
     case "marker_mismatch":
-    case "marker_missing":
     case "health_failed":
       return "error";
     default:
@@ -4925,19 +4934,22 @@ function deployVerifyText(row: DeploymentStatus): string {
   if (!row.current_commit && row.latest_status === "success" && row.deploy_verify_status) {
     if (row.deploy_verify_status === "pipeline_only") return "构建成功未验证";
     if (row.deploy_verify_status === "marker_mismatch") return "版本不一致";
-    if (row.deploy_verify_status === "marker_missing") return "未落地";
+    if (row.deploy_verify_status === "marker_missing") return "待接入验证";
+    if (row.deploy_verify_status === "marker_unavailable") return "健康已确认";
     if (row.deploy_verify_status === "health_failed") return "健康失败";
     return "待确认";
   }
   if (!row.current_commit) return "未部署";
-  if (row.deploy_verified) return "已验证";
+  if (row.deploy_verified) return row.deploy_degraded ? "健康已确认" : "已验证";
   switch (row.deploy_verify_status) {
     case "pipeline_only":
       return "构建成功未验证";
     case "marker_mismatch":
       return "版本不一致";
     case "marker_missing":
-      return "未落地";
+      return "待接入验证";
+    case "marker_unavailable":
+      return "健康已确认";
     case "health_failed":
       return "健康失败";
     default:
@@ -4953,7 +4965,7 @@ function deploymentVersionText(row: DeploymentStatus, nowMs: number): string {
     }
     return "暂无已验证部署";
   }
-  const label = row.deploy_verified ? "已验证" : row.deploy_verify_status === "pipeline_only" ? "流水线成功" : "待确认";
+  const label = row.deploy_verified ? (row.deploy_degraded ? "健康已确认" : "已验证") : row.deploy_verify_status === "pipeline_only" ? "流水线成功" : row.deploy_verify_status === "marker_missing" ? "待接入验证" : "待确认";
   const age = row.last_deployed_at ? ` · ${deployedAgeText(row.last_deployed_at, nowMs)}` : "";
   return `${label} ${row.current_branch} · ${(row.current_commit || "").slice(0, 8) || "-"}${age}`;
 }
@@ -4969,10 +4981,11 @@ function sortDeploymentRows(rows: DeploymentStatus[]): DeploymentStatus[] {
 }
 
 function deploymentAttentionRank(row: DeploymentStatus): number {
-  if (!row.current_commit && row.latest_status === "success" && row.deploy_verify_status) return 0;
-  if (row.current_commit && !row.deploy_verified && row.deploy_verify_status !== "pipeline_only") return 0;
   if (row.latest_status === "failure" || row.latest_status === "error" || row.last_status === "failure" || row.last_status === "error") return 1;
+  if (row.deploy_verify_status === "marker_mismatch" || row.deploy_verify_status === "health_failed") return 1;
   if (row.deploy_verified) return 2;
+  if (row.deploy_verify_status === "marker_missing" || row.deploy_verify_status === "marker_unavailable") return 3;
+  if (!row.current_commit && row.latest_status === "success" && row.deploy_verify_status) return 3;
   if (row.current_commit) return 3;
   return 4;
 }
@@ -5047,12 +5060,27 @@ function inferDeployHostLabel(source: string): string {
 
 function shortDeploymentVerifyMessage(row: DeploymentStatus): string {
   if (!row.deploy_verify_message) return "";
-  if (row.deploy_verified) return "版本和健康检查已通过";
+  if (row.deploy_verified) return row.deploy_degraded ? "健康检查已通过，版本 marker 待接入" : "版本和健康检查已通过";
   if (row.deploy_verify_status === "pipeline_only") return "构建成功，部署未验证";
-  if (row.deploy_verify_status === "marker_missing") return "Marker 读取失败";
+  if (row.deploy_verify_status === "marker_missing") return "版本验证待接入";
+  if (row.deploy_verify_status === "marker_unavailable") return "健康已确认，marker 不可读";
   if (row.deploy_verify_status === "marker_mismatch") return "版本不一致";
   if (row.deploy_verify_status === "health_failed") return "健康检查失败";
   return row.deploy_verify_message.length > 18 ? `${row.deploy_verify_message.slice(0, 18)}...` : row.deploy_verify_message;
+}
+
+function deployVerifyTone(row: DeploymentStatus): "success" | "warning" | "danger" | "muted" {
+  if (row.deploy_verified && !row.deploy_degraded) return "success";
+  if (row.deploy_verify_status === "health_failed" || row.deploy_verify_status === "marker_mismatch") return "danger";
+  if (row.deploy_verify_status === "pipeline_only" || row.deploy_verify_status === "marker_missing" || row.deploy_verify_status === "marker_unavailable" || row.deploy_degraded) return "warning";
+  return row.current_commit ? "warning" : "muted";
+}
+
+function normalizeDeployVerifyMessage(message: string): string {
+  return message
+    .replace(/版本 marker 读取失败/g, "版本 marker 暂不可读")
+    .replace(/open ([^:；]+): no such file or directory/g, "未找到 marker 文件：$1")
+    .replace(/open ([^:；]+): permission denied/g, "没有权限读取 marker 文件：$1");
 }
 
 function commitLooksSame(left?: string, right?: string): boolean {

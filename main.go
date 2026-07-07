@@ -354,6 +354,7 @@ type DeploymentStatus struct {
 	TriggeredAt         string            `json:"triggered_at,omitempty"`
 	Variables           map[string]string `json:"variables,omitempty"`
 	DeployVerified      bool              `json:"deploy_verified"`
+	DeployDegraded      bool              `json:"deploy_degraded,omitempty"`
 	DeployVerifyStatus  string            `json:"deploy_verify_status,omitempty"`
 	DeployVerifyMessage string            `json:"deploy_verify_message,omitempty"`
 	ActualCommit        string            `json:"actual_commit,omitempty"`
@@ -2799,6 +2800,7 @@ func deploymentStatuses(tasks []Task, repos map[int]string, pipelines map[int][]
 			status.ActualCommit = current.ActualCommit
 			status.HealthURL = current.HealthURL
 			status.DeployVerified = current.DeployVerified
+			status.DeployDegraded = current.DeployDegraded
 			status.DeployVerifyStatus = current.DeployVerifyStatus
 			status.DeployVerifyMessage = current.DeployVerifyMessage
 			if status.ConfiguredBranch == "" {
@@ -2820,6 +2822,7 @@ func deploymentStatuses(tasks []Task, repos map[int]string, pipelines map[int][]
 			})
 			if len(unverified) > 0 {
 				status.DeployVerified = false
+				status.DeployDegraded = unverified[0].DeployDegraded
 				status.DeployVerifyStatus = unverified[0].DeployVerifyStatus
 				status.DeployVerifyMessage = unverified[0].DeployVerifyMessage
 				status.ActualCommit = unverified[0].ActualCommit
@@ -3107,6 +3110,7 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 	if status == nil {
 		return
 	}
+	status.DeployDegraded = false
 	if status.CurrentCommit == "" {
 		status.DeployVerified = false
 		status.DeployVerifyStatus = "not_deployed"
@@ -3121,56 +3125,80 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 	}
 
 	status.HealthURL = cfg.HealthURL
-	issues := []string{}
+	markerIssues := []string{}
+	hardIssues := []string{}
 	markerChecked := false
+	markerOK := false
 	healthChecked := false
+	healthOK := false
 
 	if cfg.MarkerPath != "" {
 		markerChecked = true
 		actualCommit, err := readDeploymentMarker(cfg.MarkerPath)
 		status.ActualCommit = actualCommit
 		if err != nil {
-			issues = append(issues, "版本 marker 读取失败："+err.Error())
+			markerIssues = append(markerIssues, "版本 marker 暂不可读："+err.Error())
 			if status.DeployVerifyStatus == "" {
 				status.DeployVerifyStatus = "marker_missing"
 			}
 		} else if actualCommit == "" {
-			issues = append(issues, "版本 marker 为空")
+			markerIssues = append(markerIssues, "版本 marker 为空")
 			if status.DeployVerifyStatus == "" {
 				status.DeployVerifyStatus = "marker_missing"
 			}
 		} else if !deploymentCommitMatches(actualCommit, status.CurrentCommit) {
-			issues = append(issues, fmt.Sprintf("实际版本 %s 与流水线版本 %s 不一致", shortCommit(actualCommit), shortCommit(status.CurrentCommit)))
+			hardIssues = append(hardIssues, fmt.Sprintf("实际版本 %s 与流水线版本 %s 不一致", shortCommit(actualCommit), shortCommit(status.CurrentCommit)))
 			if status.DeployVerifyStatus == "" {
 				status.DeployVerifyStatus = "marker_mismatch"
 			}
+		} else {
+			markerOK = true
 		}
 	}
 
 	if cfg.HealthURL != "" {
 		healthChecked = true
 		if err := probeDeploymentHealth(cfg.HealthURL, cfg.Timeout); err != nil {
-			issues = append(issues, "健康检查失败："+err.Error())
-			if status.DeployVerifyStatus == "" {
+			hardIssues = append(hardIssues, "健康检查失败："+err.Error())
+			if status.DeployVerifyStatus == "" || status.DeployVerifyStatus == "marker_missing" {
 				status.DeployVerifyStatus = "health_failed"
 			}
+		} else {
+			healthOK = true
 		}
 	}
 
-	if len(issues) > 0 {
+	if len(hardIssues) > 0 {
 		status.DeployVerified = false
-		status.DeployVerifyMessage = strings.Join(issues, "；")
+		if len(markerIssues) > 0 {
+			hardIssues = append(hardIssues, markerIssues...)
+		}
+		status.DeployVerifyMessage = strings.Join(hardIssues, "；")
+		return
+	}
+
+	if len(markerIssues) > 0 {
+		if healthChecked && healthOK {
+			status.DeployVerified = true
+			status.DeployDegraded = true
+			status.DeployVerifyStatus = "marker_unavailable"
+			status.DeployVerifyMessage = "服务健康检查已通过；" + strings.Join(markerIssues, "；")
+			return
+		}
+		status.DeployVerified = false
+		status.DeployVerifyStatus = "marker_missing"
+		status.DeployVerifyMessage = strings.Join(markerIssues, "；")
 		return
 	}
 
 	status.DeployVerified = true
 	status.DeployVerifyStatus = "verified"
 	switch {
-	case markerChecked && healthChecked:
+	case markerOK && healthOK:
 		status.DeployVerifyMessage = "版本 marker 与服务健康检查均已通过"
-	case markerChecked:
+	case markerChecked && markerOK:
 		status.DeployVerifyMessage = "版本 marker 已确认"
-	case healthChecked:
+	case healthChecked && healthOK:
 		status.DeployVerifyMessage = "服务健康检查已通过"
 	default:
 		status.DeployVerified = false

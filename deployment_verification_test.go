@@ -69,6 +69,29 @@ func TestApplyDeploymentVerificationPipelineOnly(t *testing.T) {
 	}
 }
 
+func TestApplyDeploymentVerificationHealthOKWithMissingMarkerIsDegraded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	status := &DeploymentStatus{CurrentCommit: "aaaaaaaa"}
+	applyDeploymentVerification(status, deploymentVerifyConfig{MarkerPath: filepath.Join(t.TempDir(), "missing-sha"), HealthURL: server.URL, Timeout: time.Second})
+
+	if !status.DeployVerified {
+		t.Fatalf("DeployVerified = false, message=%q", status.DeployVerifyMessage)
+	}
+	if !status.DeployDegraded {
+		t.Fatal("DeployDegraded = false, want true")
+	}
+	if status.DeployVerifyStatus != "marker_unavailable" {
+		t.Fatalf("DeployVerifyStatus = %q", status.DeployVerifyStatus)
+	}
+	if !strings.Contains(status.DeployVerifyMessage, "服务健康检查已通过") {
+		t.Fatalf("message = %q", status.DeployVerifyMessage)
+	}
+}
+
 func TestDeploymentStatusesOnlyVerifiedPipelineBecomesCurrent(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "current-source-sha")
 	if err := os.WriteFile(marker, []byte("verified123\n"), 0o600); err != nil {

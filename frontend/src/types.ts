@@ -110,6 +110,7 @@ export type DeploymentStatus = {
   triggered_at?: string;
   variables?: Record<string, string>;
   deploy_verified?: boolean;
+  deploy_degraded?: boolean;
   deploy_verify_status?: string;
   deploy_verify_message?: string;
   actual_commit?: string;
