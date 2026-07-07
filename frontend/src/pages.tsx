@@ -1766,11 +1766,6 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
     form.setFieldsValue({ containers: Array.from(current) });
   }
 
-  function selectHostContainers(host: string) {
-    const hostContainers = containers.filter((item) => item.host === host).slice(0, summary?.limits?.max_containers || 10).map(logContainerValue);
-    form.setFieldsValue({ containers: hostContainers });
-  }
-
   function clearContainers() {
     form.setFieldsValue({ containers: [] });
   }
@@ -1841,11 +1836,7 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
                     <Space size={6}>
                       <Server size={14} />
                       <Text strong>{group.hostName}</Text>
-                      <Tag>{group.items.length}</Tag>
                     </Space>
-                    <Button size="small" type="link" onClick={() => selectHostContainers(group.host)}>
-                      全选
-                    </Button>
                   </div>
                   <div className="log-source-items">
                     {group.items.map((item) => {
