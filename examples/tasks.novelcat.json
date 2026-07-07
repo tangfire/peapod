@@ -18,7 +18,9 @@
       "variables": {
         "DEPLOY_ACTION": "deploy",
         "PEAPOD_PROJECT_ID": "xzm-product",
-        "PEAPOD_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_NAME": "写书猫产品",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "https://context-flow.cloud/novel/api/health"
       }
     },
     {
@@ -35,7 +37,9 @@
         "DEPLOY_ACTION": "deploy",
         "FORCE_DEPLOY": "1",
         "PEAPOD_PROJECT_ID": "xzm-product",
-        "PEAPOD_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_NAME": "写书猫产品",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "https://context-flow.cloud/novel/api/health"
       }
     },
     {
@@ -51,7 +55,9 @@
       "variables": {
         "DEPLOY_ACTION": "rollback",
         "PEAPOD_PROJECT_ID": "xzm-product",
-        "PEAPOD_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_NAME": "写书猫产品",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "https://context-flow.cloud/novel/api/health"
       }
     },
     {
@@ -66,7 +72,8 @@
       "variables": {
         "DEPLOY_ACTION": "site",
         "PEAPOD_PROJECT_ID": "xzm-site",
-        "PEAPOD_PROJECT_NAME": "写书猫官网"
+        "PEAPOD_PROJECT_NAME": "写书猫官网",
+        "PEAPOD_DEPLOY_VERIFY_URL": "https://novelcat.cloud/"
       }
     },
     {
@@ -129,7 +136,9 @@
       "variables": {
         "DEPLOY_ACTION": "deploy",
         "PEAPOD_PROJECT_ID": "peapod",
-        "PEAPOD_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_NAME": "Peapod",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/peapod/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8095/healthz"
       }
     },
     {
@@ -242,6 +251,7 @@
       "risk": "warning",
       "confirm_text": "ROUTER",
       "variables": {
+        "DEPLOY_ACTION": "deploy",
         "DEPLOY_TARGET": "builder",
         "PEAPOD_PROJECT_ID": "router-builder",
         "PEAPOD_PROJECT_NAME": "测试/构建机 9router"
@@ -258,6 +268,7 @@
       "risk": "danger",
       "confirm_text": "ROLLBACK",
       "variables": {
+        "DEPLOY_ACTION": "rollback",
         "DEPLOY_TARGET": "builder",
         "PEAPOD_PROJECT_ID": "router-builder",
         "PEAPOD_PROJECT_NAME": "测试/构建机 9router"
@@ -282,6 +293,7 @@
       "risk": "danger",
       "confirm_text": "PROD",
       "variables": {
+        "DEPLOY_ACTION": "deploy",
         "DEPLOY_TARGET": "production",
         "PEAPOD_PROJECT_ID": "router-production",
         "PEAPOD_PROJECT_NAME": "生产机 9router"
@@ -298,6 +310,7 @@
       "risk": "danger",
       "confirm_text": "ROLLBACK",
       "variables": {
+        "DEPLOY_ACTION": "rollback",
         "DEPLOY_TARGET": "production",
         "PEAPOD_PROJECT_ID": "router-production",
         "PEAPOD_PROJECT_NAME": "生产机 9router"

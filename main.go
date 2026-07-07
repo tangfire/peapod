@@ -2878,7 +2878,7 @@ func deploymentTargetFromPipeline(repoID int, repoName string, pipeline Pipeline
 		return target, task.Branch, targetOK
 	}
 	action := variableValue(pipeline.Variables, "DEPLOY_ACTION")
-	if action == "" && len(pipeline.Variables) == 0 {
+	if action == "" && !pipelineHasPeapodProjectMetadata(pipeline.Variables) {
 		return deploymentTarget{}, "", false
 	}
 	if isMaintenanceAction(action) {
@@ -2895,6 +2895,18 @@ func deploymentTargetFromPipeline(repoID int, repoName string, pipeline Pipeline
 	}
 	target, ok := deploymentTargetFromTask(task)
 	return target, task.Branch, ok
+}
+
+func pipelineHasPeapodProjectMetadata(variables map[string]string) bool {
+	return firstNonEmptyString(
+		variableValue(variables, "PEAPOD_PROJECT_ID"),
+		variableValue(variables, "ZEPHYR_PROJECT_ID"),
+		variableValue(variables, "PROJECT_ID"),
+		variableValue(variables, "SERVICE_ID"),
+		variableValue(variables, "DEPLOY_SERVICE"),
+		variableValue(variables, "APP"),
+		variableValue(variables, "PROJECT"),
+	) != ""
 }
 
 func deploymentTaskFromPipeline(repoID int, pipeline Pipeline, tasks []Task) (Task, bool) {
@@ -3126,6 +3138,7 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 
 	status.HealthURL = cfg.HealthURL
 	markerIssues := []string{}
+	markerMismatch := ""
 	hardIssues := []string{}
 	markerChecked := false
 	markerOK := false
@@ -3147,7 +3160,7 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 				status.DeployVerifyStatus = "marker_missing"
 			}
 		} else if !deploymentCommitMatches(actualCommit, status.CurrentCommit) {
-			hardIssues = append(hardIssues, fmt.Sprintf("实际版本 %s 与流水线版本 %s 不一致", shortCommit(actualCommit), shortCommit(status.CurrentCommit)))
+			markerMismatch = fmt.Sprintf("实际版本 %s 与流水线版本 %s 不一致", shortCommit(actualCommit), shortCommit(status.CurrentCommit))
 			if status.DeployVerifyStatus == "" {
 				status.DeployVerifyStatus = "marker_mismatch"
 			}
@@ -3166,6 +3179,18 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 		} else {
 			healthOK = true
 		}
+	}
+
+	if markerMismatch != "" {
+		if healthChecked && healthOK {
+			status.DeployVerified = true
+			status.DeployDegraded = true
+			status.DeployVerifyStatus = "external_marker"
+			status.DeployVerifyMessage = "服务健康检查已通过；版本 marker 指向 " + shortCommit(status.ActualCommit) + "，与 Woodpecker 最近成功记录不同，可能是手动或外部部署"
+			status.CurrentCommit = status.ActualCommit
+			return
+		}
+		hardIssues = append(hardIssues, markerMismatch)
 	}
 
 	if len(hardIssues) > 0 {

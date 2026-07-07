@@ -4921,6 +4921,7 @@ function deployVerifyColor(row: DeploymentStatus): string {
     case "pipeline_only":
     case "marker_missing":
     case "marker_unavailable":
+    case "external_marker":
       return "gold";
     case "marker_mismatch":
     case "health_failed":
@@ -4936,11 +4937,12 @@ function deployVerifyText(row: DeploymentStatus): string {
     if (row.deploy_verify_status === "marker_mismatch") return "版本不一致";
     if (row.deploy_verify_status === "marker_missing") return "待接入验证";
     if (row.deploy_verify_status === "marker_unavailable") return "健康已确认";
+    if (row.deploy_verify_status === "external_marker") return "外部部署已确认";
     if (row.deploy_verify_status === "health_failed") return "健康失败";
     return "待确认";
   }
   if (!row.current_commit) return "未部署";
-  if (row.deploy_verified) return row.deploy_degraded ? "健康已确认" : "已验证";
+  if (row.deploy_verified) return row.deploy_verify_status === "external_marker" ? "外部部署已确认" : row.deploy_degraded ? "健康已确认" : "已验证";
   switch (row.deploy_verify_status) {
     case "pipeline_only":
       return "构建成功未验证";
@@ -4950,6 +4952,8 @@ function deployVerifyText(row: DeploymentStatus): string {
       return "待接入验证";
     case "marker_unavailable":
       return "健康已确认";
+    case "external_marker":
+      return "外部部署已确认";
     case "health_failed":
       return "健康失败";
     default:
@@ -4965,7 +4969,7 @@ function deploymentVersionText(row: DeploymentStatus, nowMs: number): string {
     }
     return "暂无已验证部署";
   }
-  const label = row.deploy_verified ? (row.deploy_degraded ? "健康已确认" : "已验证") : row.deploy_verify_status === "pipeline_only" ? "流水线成功" : row.deploy_verify_status === "marker_missing" ? "待接入验证" : "待确认";
+  const label = row.deploy_verified ? (row.deploy_verify_status === "external_marker" ? "外部部署已确认" : row.deploy_degraded ? "健康已确认" : "已验证") : row.deploy_verify_status === "pipeline_only" ? "流水线成功" : row.deploy_verify_status === "marker_missing" ? "待接入验证" : "待确认";
   const age = row.last_deployed_at ? ` · ${deployedAgeText(row.last_deployed_at, nowMs)}` : "";
   return `${label} ${row.current_branch} · ${(row.current_commit || "").slice(0, 8) || "-"}${age}`;
 }
@@ -5064,6 +5068,7 @@ function shortDeploymentVerifyMessage(row: DeploymentStatus): string {
   if (row.deploy_verify_status === "pipeline_only") return "构建成功，部署未验证";
   if (row.deploy_verify_status === "marker_missing") return "版本验证待接入";
   if (row.deploy_verify_status === "marker_unavailable") return "健康已确认，marker 不可读";
+  if (row.deploy_verify_status === "external_marker") return "外部部署已确认";
   if (row.deploy_verify_status === "marker_mismatch") return "版本不一致";
   if (row.deploy_verify_status === "health_failed") return "健康检查失败";
   return row.deploy_verify_message.length > 18 ? `${row.deploy_verify_message.slice(0, 18)}...` : row.deploy_verify_message;
@@ -5072,7 +5077,7 @@ function shortDeploymentVerifyMessage(row: DeploymentStatus): string {
 function deployVerifyTone(row: DeploymentStatus): "success" | "warning" | "danger" | "muted" {
   if (row.deploy_verified && !row.deploy_degraded) return "success";
   if (row.deploy_verify_status === "health_failed" || row.deploy_verify_status === "marker_mismatch") return "danger";
-  if (row.deploy_verify_status === "pipeline_only" || row.deploy_verify_status === "marker_missing" || row.deploy_verify_status === "marker_unavailable" || row.deploy_degraded) return "warning";
+  if (row.deploy_verify_status === "pipeline_only" || row.deploy_verify_status === "marker_missing" || row.deploy_verify_status === "marker_unavailable" || row.deploy_verify_status === "external_marker" || row.deploy_degraded) return "warning";
   return row.current_commit ? "warning" : "muted";
 }
 

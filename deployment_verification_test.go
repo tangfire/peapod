@@ -129,6 +129,17 @@ func TestDeploymentStatusesOnlyVerifiedPipelineBecomesCurrent(t *testing.T) {
 	}
 }
 
+func TestDeploymentStatusesIgnoreTargetOnlyPipelineNoise(t *testing.T) {
+	pipelines := map[int][]Pipeline{3: {
+		{Number: 1, Status: "success", Branch: "main", Commit: "aaaaaaaa", Finished: 100, Variables: map[string]string{"DEPLOY_TARGET": "production"}},
+	}}
+
+	rows := deploymentStatuses(nil, map[int]string{3: "router"}, pipelines)
+	if len(rows) != 0 {
+		t.Fatalf("rows len = %d, want 0: %#v", len(rows), rows)
+	}
+}
+
 func TestNormalizeTaskConfigRequiresDeploymentVerification(t *testing.T) {
 	task := Task{
 		ID:     "deploy-app",
