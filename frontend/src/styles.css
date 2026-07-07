@@ -669,6 +669,72 @@ body {
   border-radius: 8px;
 }
 
+.deploy-object-toolbar {
+  display: grid;
+  grid-template-columns: minmax(360px, auto) minmax(260px, 420px);
+  gap: 12px;
+  align-items: center;
+}
+
+.deploy-object-toolbar .ant-segmented {
+  justify-self: start;
+}
+
+.desktop-deploy-object-table .ant-pro-card-body {
+  padding: 0 !important;
+}
+
+.desktop-deploy-object-table .ant-table-wrapper {
+  border: 1px solid #e6ece2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.desktop-deploy-object-table .ant-table-tbody > tr {
+  cursor: pointer;
+}
+
+.desktop-deploy-object-table .ant-table-tbody > tr:hover > td {
+  background: #fbfdf9 !important;
+}
+
+.desktop-deploy-object-table .ant-table-expanded-row > td {
+  background: #fbfcfa !important;
+}
+
+.deploy-object-name-cell {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.deploy-object-status-rail-normal {
+  background: #4f8b33;
+}
+
+.deploy-object-status-rail-warning {
+  background: #d99717;
+}
+
+.deploy-object-status-rail-danger {
+  background: #d14343;
+}
+
+.deploy-object-expanded-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  background: #fbfcfa;
+  border: 1px solid #e6ece2;
+  border-radius: 8px;
+}
+
+.mobile-deploy-object-list {
+  display: none;
+}
+
 .deploy-console-head {
   display: flex;
   align-items: center;
@@ -749,7 +815,7 @@ body {
 
 .deploy-object-status-rail {
   width: 4px;
-  height: 42px;
+  height: 40px;
   border-radius: 999px;
   background: #9ca3af;
 }
@@ -1748,6 +1814,36 @@ body {
 
   .mobile-monitor-metrics .compact-meter {
     display: none;
+  }
+
+  .deploy-object-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .deploy-object-toolbar .ant-segmented {
+    width: 100%;
+  }
+
+  .deploy-object-toolbar .ant-segmented-group {
+    width: 100%;
+  }
+
+  .deploy-object-toolbar .ant-segmented-item {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .desktop-deploy-object-table {
+    display: none;
+  }
+
+  .mobile-deploy-object-list {
+    display: block;
+  }
+
+  .mobile-deploy-object-list .ant-list-item {
+    display: block;
+    padding: 12px 0;
   }
 
   .deploy-object-workbench {
