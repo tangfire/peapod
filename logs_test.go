@@ -142,11 +142,77 @@ func TestDozzleMCPClientCallToolText(t *testing.T) {
 	}))
 	defer server.Close()
 
-	text, err := newDozzleMCPClient(server.URL, server.Client()).callToolText(context.Background(), "list_containers", map[string]any{})
+	text, err := newDozzleMCPClient(server.URL, "", "", server.Client()).callToolText(context.Background(), "list_containers", map[string]any{})
 	if err != nil {
 		t.Fatalf("callToolText failed: %v", err)
 	}
 	if text != "[]" {
 		t.Fatalf("unexpected text: %q", text)
+	}
+}
+
+func TestDozzleMCPClientAuthenticatesBeforeMCP(t *testing.T) {
+	var sawLogin bool
+	var sawCookie bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/token" {
+			if err := r.ParseMultipartForm(1024); err != nil {
+				t.Fatalf("bad multipart form: %v", err)
+			}
+			if r.FormValue("username") != "ops" || r.FormValue("password") != "secret" {
+				http.Error(w, "invalid credentials", http.StatusUnauthorized)
+				return
+			}
+			sawLogin = true
+			http.SetCookie(w, &http.Cookie{Name: "jwt", Value: "test-token", Path: "/", HttpOnly: true})
+			_, _ = w.Write([]byte("OK"))
+			return
+		}
+		if r.URL.Path != "/api/mcp" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Cookie") == "jwt=test-token" {
+			sawCookie = true
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("bad request: %v", err)
+		}
+		method := request["method"]
+		if method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		id := request["id"]
+		w.Header().Set("Content-Type", "application/json")
+		if method == "initialize" {
+			w.Header().Set("Mcp-Session-Id", "test-session")
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
+			return
+		}
+		if method == "tools/call" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"content": []map[string]string{{"type": "text", "text": "[]"}},
+				},
+			})
+			return
+		}
+		http.Error(w, "unexpected method", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	_, err := newDozzleMCPClient(server.URL, "ops", "secret", server.Client()).callToolText(context.Background(), "list_containers", map[string]any{})
+	if err != nil {
+		t.Fatalf("callToolText failed: %v", err)
+	}
+	if !sawLogin {
+		t.Fatal("expected login request before MCP")
+	}
+	if !sawCookie {
+		t.Fatal("expected MCP request to include auth cookie")
 	}
 }

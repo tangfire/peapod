@@ -60,6 +60,8 @@ type Config struct {
 	BeszelPassword        string
 	DozzleBaseURL         string
 	DozzlePublicURL       string
+	DozzleUsername        string
+	DozzlePassword        string
 	GrafanaPublicURL      string
 	LogStrategy           string
 	DockerLogMaxSize      string
@@ -88,6 +90,8 @@ type RuntimeConfigFile struct {
 	BeszelPassword        string               `json:"beszel_password,omitempty"`
 	DozzleBaseURL         string               `json:"dozzle_base_url,omitempty"`
 	DozzlePublicURL       string               `json:"dozzle_public_url,omitempty"`
+	DozzleUsername        string               `json:"dozzle_username,omitempty"`
+	DozzlePassword        string               `json:"dozzle_password,omitempty"`
 	GrafanaPublicURL      string               `json:"grafana_public_url,omitempty"`
 	LogStrategy           string               `json:"log_strategy,omitempty"`
 	DockerLogMaxSize      string               `json:"docker_log_max_size,omitempty"`
@@ -112,6 +116,8 @@ type RuntimeConfigInput struct {
 	BeszelPassword        string               `json:"beszel_password"`
 	DozzleBaseURL         string               `json:"dozzle_base_url"`
 	DozzlePublicURL       string               `json:"dozzle_public_url"`
+	DozzleUsername        string               `json:"dozzle_username"`
+	DozzlePassword        string               `json:"dozzle_password"`
 	GrafanaPublicURL      string               `json:"grafana_public_url"`
 	LogStrategy           string               `json:"log_strategy"`
 	DockerLogMaxSize      string               `json:"docker_log_max_size"`
@@ -589,6 +595,8 @@ func loadConfig() Config {
 		BeszelPassword:        envFirst("", "PEAPOD_BESZEL_PASSWORD", "ZEPHYR_BESZEL_PASSWORD", "ZEFIRE_BESZEL_PASSWORD"),
 		DozzleBaseURL:         strings.TrimRight(envFirst("http://dozzle:8080", "PEAPOD_DOZZLE_BASE_URL", "ZEPHYR_DOZZLE_BASE_URL", "ZEFIRE_DOZZLE_BASE_URL"), "/"),
 		DozzlePublicURL:       strings.TrimRight(firstNonEmptyString(envFirst("", "PEAPOD_DOZZLE_PUBLIC_URL", "ZEPHYR_DOZZLE_PUBLIC_URL", "ZEFIRE_DOZZLE_PUBLIC_URL"), env("DOZZLE_PUBLIC_URL", "")), "/"),
+		DozzleUsername:        envFirst("", "PEAPOD_DOZZLE_USERNAME", "ZEPHYR_DOZZLE_USERNAME", "ZEFIRE_DOZZLE_USERNAME", "DOZZLE_USERNAME"),
+		DozzlePassword:        envFirst("", "PEAPOD_DOZZLE_PASSWORD", "ZEPHYR_DOZZLE_PASSWORD", "ZEFIRE_DOZZLE_PASSWORD", "DOZZLE_PASSWORD"),
 		GrafanaPublicURL:      strings.TrimRight(envFirst("", "PEAPOD_GRAFANA_PUBLIC_URL", "ZEPHYR_GRAFANA_PUBLIC_URL", "ZEFIRE_GRAFANA_PUBLIC_URL"), "/"),
 		LogStrategy:           normalizeLogStrategy(envFirst("lightweight", "PEAPOD_LOG_STRATEGY", "ZEPHYR_LOG_STRATEGY", "ZEFIRE_LOG_STRATEGY")),
 		DockerLogMaxSize:      fallbackText(env("DOCKER_LOG_MAX_SIZE", ""), "20m"),
@@ -672,6 +680,12 @@ func applyRuntimeConfig(cfg *Config, runtime RuntimeConfigFile) {
 	}
 	cfg.GrafanaPublicURL = cleanURL(runtime.GrafanaPublicURL)
 	cfg.DozzlePublicURL = cleanURL(runtime.DozzlePublicURL)
+	if value := strings.TrimSpace(runtime.DozzleUsername); value != "" {
+		cfg.DozzleUsername = value
+	}
+	if value := strings.TrimSpace(runtime.DozzlePassword); value != "" {
+		cfg.DozzlePassword = value
+	}
 	if value := normalizeLogStrategy(runtime.LogStrategy); value != "" {
 		cfg.LogStrategy = value
 	}
@@ -714,6 +728,7 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 		BeszelEmail:           strings.TrimSpace(input.BeszelEmail),
 		DozzleBaseURL:         cleanURL(input.DozzleBaseURL),
 		DozzlePublicURL:       cleanURL(input.DozzlePublicURL),
+		DozzleUsername:        strings.TrimSpace(input.DozzleUsername),
 		GrafanaPublicURL:      cleanURL(input.GrafanaPublicURL),
 		LogStrategy:           normalizeLogStrategy(input.LogStrategy),
 		DockerLogMaxSize:      strings.TrimSpace(input.DockerLogMaxSize),
@@ -732,6 +747,10 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 	cfg.BeszelPassword = strings.TrimSpace(input.BeszelPassword)
 	if cfg.BeszelPassword == "" {
 		cfg.BeszelPassword = existing.BeszelPassword
+	}
+	cfg.DozzlePassword = strings.TrimSpace(input.DozzlePassword)
+	if cfg.DozzlePassword == "" {
+		cfg.DozzlePassword = firstNonEmptyString(existing.DozzlePassword, current.DozzlePassword)
 	}
 	cfg.AlertWebhookURL = strings.TrimSpace(input.AlertWebhookURL)
 	if cfg.AlertWebhookURL == "" {
@@ -754,6 +773,9 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 	}
 	if cfg.DozzleBaseURL == "" {
 		cfg.DozzleBaseURL = current.DozzleBaseURL
+	}
+	if cfg.DozzleUsername == "" {
+		cfg.DozzleUsername = current.DozzleUsername
 	}
 	if cfg.LogStrategy == "" {
 		cfg.LogStrategy = current.LogStrategy
@@ -1363,6 +1385,7 @@ func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
 				"PEAPOD_BESZEL_PUBLIC_URL":  next.BeszelPublicURL,
 				"PEAPOD_DOZZLE_BASE_URL":    next.DozzleBaseURL,
 				"PEAPOD_DOZZLE_PUBLIC_URL":  next.DozzlePublicURL,
+				"PEAPOD_DOZZLE_USERNAME":    next.DozzleUsername,
 				"PEAPOD_GRAFANA_PUBLIC_URL": next.GrafanaPublicURL,
 				"PEAPOD_LOG_STRATEGY":       next.LogStrategy,
 				"DOCKER_LOG_MAX_SIZE":       next.DockerLogMaxSize,
@@ -3316,6 +3339,8 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 		BeszelPassword:        "",
 		DozzleBaseURL:         a.cfg.DozzleBaseURL,
 		DozzlePublicURL:       a.cfg.DozzlePublicURL,
+		DozzleUsername:        a.cfg.DozzleUsername,
+		DozzlePassword:        "",
 		GrafanaPublicURL:      a.cfg.GrafanaPublicURL,
 		LogStrategy:           normalizeLogStrategy(a.cfg.LogStrategy),
 		DockerLogMaxSize:      fallbackText(a.cfg.DockerLogMaxSize, "20m"),
@@ -3337,6 +3362,7 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 		Secrets: map[string]bool{
 			"woodpecker_token": strings.TrimSpace(a.cfg.WoodpeckerToken) != "",
 			"beszel_password":  strings.TrimSpace(a.cfg.BeszelPassword) != "",
+			"dozzle_password":  strings.TrimSpace(a.cfg.DozzlePassword) != "",
 			"session_secret":   strings.TrimSpace(a.cfg.SessionSecret) != "",
 			"database_dsn":     strings.TrimSpace(a.cfg.DBDSN) != "",
 			"alert_webhook":    strings.TrimSpace(a.cfg.AlertWebhookURL) != "",

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"os"
@@ -137,6 +138,9 @@ type mcpToolResult struct {
 type dozzleMCPClient struct {
 	baseURL     string
 	endpoint    string
+	username    string
+	password    string
+	authCookie  string
 	client      *http.Client
 	sessionID   string
 	nextID      int
@@ -228,7 +232,7 @@ func (a *App) probeDozzleMCP(timeout time.Duration) (bool, string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	_, err := newDozzleMCPClient(a.cfg.DozzleBaseURL, a.client).callToolText(ctx, "list_containers", map[string]any{"state": "running"})
+	_, err := a.newDozzleMCPClient().callToolText(ctx, "list_containers", map[string]any{"state": "running"})
 	if err != nil {
 		return false, "MCP 不可用：" + err.Error()
 	}
@@ -344,7 +348,7 @@ func hasNonDozzleLogContainers(containers []LogContainer) bool {
 }
 
 func (a *App) listDozzleContainers(ctx context.Context) ([]LogContainer, error) {
-	text, err := newDozzleMCPClient(a.cfg.DozzleBaseURL, a.client).callToolText(ctx, "list_containers", map[string]any{})
+	text, err := a.newDozzleMCPClient().callToolText(ctx, "list_containers", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +414,7 @@ func countLogHosts(containers []LogContainer) int {
 }
 
 func (a *App) queryDozzleLogs(ctx context.Context, input LogQueryRequest) ([]LogLine, []LogContainer, string, error) {
-	client := newDozzleMCPClient(a.cfg.DozzleBaseURL, a.client)
+	client := a.newDozzleMCPClient()
 	containers, err := a.listDozzleContainersWithClient(ctx, client)
 	if err != nil {
 		return nil, nil, "", err
@@ -421,7 +425,7 @@ func (a *App) queryDozzleLogs(ctx context.Context, input LogQueryRequest) ([]Log
 }
 
 func (a *App) queryMergedLogs(ctx context.Context, input LogQueryRequest) ([]LogLine, []LogContainer, string, string, error) {
-	client := newDozzleMCPClient(a.cfg.DozzleBaseURL, a.client)
+	client := a.newDozzleMCPClient()
 	dozzleContainers, dozzleErr := a.listDozzleContainersWithClient(ctx, client)
 	monitoringContainers := a.monitoringLogContainers(ctx)
 	if dozzleErr != nil {
@@ -940,7 +944,11 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-func newDozzleMCPClient(baseURL string, client *http.Client) *dozzleMCPClient {
+func (a *App) newDozzleMCPClient() *dozzleMCPClient {
+	return newDozzleMCPClient(a.cfg.DozzleBaseURL, a.cfg.DozzleUsername, a.cfg.DozzlePassword, a.client)
+}
+
+func newDozzleMCPClient(baseURL, username, password string, client *http.Client) *dozzleMCPClient {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	endpoint := baseURL
 	if !strings.HasSuffix(endpoint, "/api/mcp") {
@@ -949,7 +957,13 @@ func newDozzleMCPClient(baseURL string, client *http.Client) *dozzleMCPClient {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &dozzleMCPClient{baseURL: baseURL, endpoint: endpoint, client: client}
+	return &dozzleMCPClient{
+		baseURL:  baseURL,
+		endpoint: endpoint,
+		username: strings.TrimSpace(username),
+		password: strings.TrimSpace(password),
+		client:   client,
+	}
 }
 
 func (c *dozzleMCPClient) callToolText(ctx context.Context, name string, args map[string]any) (string, error) {
@@ -978,6 +992,9 @@ func (c *dozzleMCPClient) initialize(ctx context.Context) error {
 	if strings.TrimSpace(c.endpoint) == "/api/mcp" || strings.TrimSpace(c.baseURL) == "" {
 		return errors.New("Dozzle BaseURL 未配置")
 	}
+	if err := c.authenticate(ctx); err != nil {
+		return err
+	}
 	_, err := c.rpc(ctx, "initialize", map[string]any{
 		"protocolVersion": "2025-06-18",
 		"capabilities":    map[string]any{},
@@ -989,6 +1006,47 @@ func (c *dozzleMCPClient) initialize(ctx context.Context) error {
 	_, _ = c.rpc(ctx, "notifications/initialized", map[string]any{}, false)
 	c.initialized = true
 	return nil
+}
+
+func (c *dozzleMCPClient) authenticate(ctx context.Context) error {
+	if c.username == "" && c.password == "" {
+		return nil
+	}
+	if c.username == "" || c.password == "" {
+		return errors.New("Dozzle 账号或密码未完整配置")
+	}
+	if c.authCookie != "" {
+		return nil
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("username", c.username)
+	_ = writer.WriteField("password", c.password)
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/token", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "text/plain, application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Dozzle 登录失败 HTTP %d：%s", resp.StatusCode, shortBody(payload))
+	}
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "jwt" && cookie.Value != "" {
+			c.authCookie = cookie.Name + "=" + cookie.Value
+			return nil
+		}
+	}
+	return errors.New("Dozzle 登录成功但未返回 jwt cookie")
 }
 
 func (c *dozzleMCPClient) rpc(ctx context.Context, method string, params any, expectResponse bool) (json.RawMessage, error) {
@@ -1014,6 +1072,9 @@ func (c *dozzleMCPClient) rpc(ctx context.Context, method string, params any, ex
 	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
 	if c.sessionID != "" {
 		req.Header.Set("Mcp-Session-Id", c.sessionID)
+	}
+	if c.authCookie != "" {
+		req.Header.Set("Cookie", c.authCookie)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {

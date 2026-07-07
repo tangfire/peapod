@@ -3128,6 +3128,20 @@ function SetupConfigPanel({ onReload, initialSection = "guide" }: { onReload: ()
           </Row>
           <Row gutter={12}>
             <Col xs={24} lg={8}>
+              <Form.Item label="Dozzle 用户名" name="dozzle_username" extra="Dozzle 开启 simple auth 后，Peapod 会用这个账号读取 MCP。">
+                <Input placeholder="tangfire" autoComplete="username" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Form.Item
+                label="Dozzle 密码"
+                name="dozzle_password"
+                extra={setup?.secrets?.dozzle_password ? "已配置；留空保存会保留原密码。" : "Dozzle 开启登录保护后需要配置。"}
+              >
+                <Input.Password placeholder={setup?.secrets?.dozzle_password ? "留空保留原密码" : "填入 Dozzle 密码"} autoComplete="new-password" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} lg={8}>
               <Form.Item label="Grafana 公开地址" name="grafana_public_url" extra="完整观测入口：历史日志、指标、链路和告警。轻量模式可留空或稍后启用。">
                 <Input placeholder="https://grafana.example.com" />
               </Form.Item>
@@ -3574,6 +3588,8 @@ function normalizeSetupFormValues(values: RuntimeConfigInput): RuntimeConfigInpu
     beszel_password: String(values.beszel_password || "").trim(),
     dozzle_base_url: String(values.dozzle_base_url || "http://dozzle:8080").trim(),
     dozzle_public_url: String(values.dozzle_public_url || "").trim(),
+    dozzle_username: String(values.dozzle_username || "").trim(),
+    dozzle_password: String(values.dozzle_password || "").trim(),
     grafana_public_url: String(values.grafana_public_url || "").trim(),
     log_strategy: normalizeLogStrategyValue(values.log_strategy),
     docker_log_max_size: String(values.docker_log_max_size || "20m").trim(),

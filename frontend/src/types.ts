@@ -240,6 +240,8 @@ export type RuntimeConfigInput = {
   beszel_password?: string;
   dozzle_base_url: string;
   dozzle_public_url: string;
+  dozzle_username?: string;
+  dozzle_password?: string;
   grafana_public_url: string;
   log_strategy: "lightweight" | "observability" | "external";
   docker_log_max_size: string;
