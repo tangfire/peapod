@@ -51,6 +51,24 @@
         "PEAPOD_DEPLOY_MARKER_PATH": "/opt/peapod/.deploy/current-source-sha",
         "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8095/healthz"
       }
+    },
+    {
+      "id": "peapod-rollback",
+      "group": "Peapod",
+      "title": "回滚 Peapod",
+      "description": "从 Pedpod 成功部署历史选择 commit，检出目标版本并重新部署 Peapod。",
+      "repo_id": 9,
+      "repo_name": "your-org/peapod",
+      "branch": "main",
+      "risk": "danger",
+      "confirm_text": "ROLLBACK",
+      "variables": {
+        "DEPLOY_ACTION": "rollback",
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/peapod/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8095/healthz"
+      }
     }
   ]
 }
