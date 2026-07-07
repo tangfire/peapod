@@ -319,52 +319,57 @@ export function DeployPage({
   woodpecker,
   nowMs,
   tasks,
+  pipelines,
   currentUser,
   triggeringTaskIds,
   refreshing,
   onRun,
-  onRefresh
+  onRefresh,
+  onCancel,
+  onInspect
 }: {
   state: StateResponse;
   rows: DeploymentStatus[];
   woodpecker: string;
   nowMs: number;
   tasks: Task[];
+  pipelines: Pipeline[];
   currentUser: User;
   triggeringTaskIds: string[];
   refreshing: boolean;
   onRun: (task: Task) => void;
   onRefresh: () => void;
+  onCancel: (row: Pipeline) => void;
+  onInspect: (row: Pipeline) => void;
 }) {
-  const [filters, setFilters] = useState({ group: "", repo: "", risk: "", q: "" });
-  const [view, setView] = useState<"projects" | "actions">("projects");
-  const deploymentTaskIDs = useMemo(() => new Set(deploymentManagedTaskIDs(tasks || [], rows || [])), [tasks, rows]);
-  const maintenanceCount = (tasks || []).filter((item) => !item.external_url && !deploymentTaskIDs.has(item.id)).length;
+  const [query, setQuery] = useState("");
+  const objects = useMemo(() => buildDeployObjects(state, rows, tasks, pipelines, nowMs), [state, rows, tasks, pipelines, nowMs]);
+  const [selectedID, setSelectedID] = useState("");
+  useEffect(() => {
+    if (!objects.length) {
+      setSelectedID("");
+      return;
+    }
+    if (!selectedID || !objects.some((item) => item.id === selectedID)) {
+      setSelectedID(objects[0].id);
+    }
+  }, [objects, selectedID]);
+  const filteredObjects = useMemo(() => filterDeployObjects(objects, query), [objects, query]);
+  const selectedObject = filteredObjects.find((item) => item.id === selectedID) || filteredObjects[0] || objects.find((item) => item.id === selectedID) || objects[0];
   const verifiedCount = rows.filter((row) => row.deploy_verified).length;
-  const attentionCount = rows.filter((row) => {
-    const status = row.latest_status || row.last_status;
-    return ["failure", "error", "killed"].includes(status) || Boolean(row.deploy_verify_status && row.deploy_verify_status !== "verified" && (row.latest_status === "success" || row.current_commit));
-  }).length;
+  const attentionCount = objects.filter((item) => item.attention).length;
   return (
     <Space direction="vertical" size={16} className="side-stack">
       <PageIntro
         title="部署"
-        description="以项目为中心确认版本、选择分支、触发部署或回退。低频配置放在设置里。"
+        description="以运维对象为中心管理项目、环境和维护动作。点进对象后确认版本、触发部署、查看相关流水线。"
         stats={[
-          { label: "项目", value: String(rows.length || 0) },
+          { label: "对象", value: String(objects.length || 0) },
           { label: "已验证", value: `${verifiedCount}/${rows.length || 0}`, tone: verifiedCount === rows.length && rows.length ? "success" : "normal" },
           { label: "需关注", value: String(attentionCount), tone: attentionCount ? "danger" : "success" }
         ]}
         actions={
-          <Space className="deploy-intro-actions">
-            <Segmented
-              value={view}
-              onChange={(next) => setView(next as "projects" | "actions")}
-              options={[
-                { label: `项目发布 ${rows.length || 0}`, value: "projects" },
-                { label: `维护动作 ${maintenanceCount}`, value: "actions" }
-              ]}
-            />
+          <Space className="deploy-intro-actions" wrap>
             <Button icon={<RefreshCw size={16} />} loading={refreshing} onClick={onRefresh}>刷新</Button>
           </Space>
         }
@@ -373,34 +378,244 @@ export function DeployPage({
         className="deploy-workspace-card"
         title={
           <Space size={8}>
-            {view === "projects" ? <GitBranch size={16} /> : <Play size={16} />}
-            <span>{view === "projects" ? "项目发布" : "维护动作库"}</span>
+            <GitBranch size={16} />
+            <span>运维对象</span>
           </Space>
         }
         extra={
-          <Text type="secondary">
-            {view === "projects" ? "高频上线入口：确认版本、部署、回退、打开流水线" : "低频维护入口：清理、重启、刷新观测；变量和确认词已收进详情"}
-          </Text>
+          <Text type="secondary">一个对象可以映射同仓库的不同机器、环境或部署目标</Text>
         }
       >
-        {view === "projects" ? (
-          <DeploymentStatusTable
-            rows={rows}
+        <div className="deploy-object-workbench">
+          <DeployObjectList
+            objects={filteredObjects}
+            total={objects.length}
+            query={query}
+            selectedID={selectedObject?.id || ""}
+            onQueryChange={setQuery}
+            onSelect={(id) => setSelectedID(id)}
+          />
+          <DeployObjectDetail
+            item={selectedObject}
+            state={state}
             woodpecker={woodpecker}
             nowMs={nowMs}
-            tasks={tasks}
             currentUser={currentUser}
             triggeringTaskIds={triggeringTaskIds}
             onRun={onRun}
+            onCancel={onCancel}
+            onInspect={onInspect}
           />
-        ) : (
-          <>
-            <TaskFilters state={state} value={filters} onChange={setFilters} />
-            <TaskTable state={state} filters={filters} triggeringTaskIds={triggeringTaskIds} onRun={onRun} />
-          </>
-        )}
+        </div>
       </ProCard>
     </Space>
+  );
+}
+
+type DeployObject = {
+  id: string;
+  kind: "deployment" | "action";
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  statusColor: string;
+  attention: boolean;
+  risk: Risk;
+  deployment?: DeploymentStatus;
+  primaryTask?: Task;
+  rollbackTask?: Task;
+  extraTasks: Task[];
+  pipelines: Pipeline[];
+  searchText: string;
+};
+
+function DeployObjectList({
+  objects,
+  total,
+  query,
+  selectedID,
+  onQueryChange,
+  onSelect
+}: {
+  objects: DeployObject[];
+  total: number;
+  query: string;
+  selectedID: string;
+  onQueryChange: (value: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="deploy-object-list-panel">
+      <div className="deploy-object-list-head">
+        <Text strong>对象目录</Text>
+        <Text type="secondary">{objects.length}/{total}</Text>
+      </div>
+      <Input
+        allowClear
+        prefix={<Search size={15} />}
+        placeholder="搜索项目、环境、动作、仓库"
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+      <div className="deploy-object-list">
+        {objects.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={`deploy-object-item ${item.id === selectedID ? "deploy-object-item-active" : ""}`}
+            onClick={() => onSelect(item.id)}
+          >
+            <span className="deploy-object-main">
+              <span className="deploy-object-title-row">
+                <Text strong>{item.title}</Text>
+                <Tag color={item.statusColor}>{item.statusLabel}</Tag>
+              </span>
+              <Text type="secondary" ellipsis={{ tooltip: item.subtitle }}>{item.subtitle}</Text>
+            </span>
+            <span className="deploy-object-meta">
+              <Tag color={item.kind === "deployment" ? "blue" : riskColors[item.risk] || "default"}>
+                {item.kind === "deployment" ? "项目" : riskLabel(item.risk)}
+              </Tag>
+              {item.pipelines.some((row) => ["running", "pending"].includes(row.status)) && <Tag color="processing">运行中</Tag>}
+              {item.attention && <Tag color="red">关注</Tag>}
+            </span>
+          </button>
+        ))}
+        {!objects.length && (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配对象" : "暂无运维对象"} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeployObjectDetail({
+  item,
+  state,
+  woodpecker,
+  nowMs,
+  currentUser,
+  triggeringTaskIds,
+  onRun,
+  onCancel,
+  onInspect
+}: {
+  item?: DeployObject;
+  state: StateResponse;
+  woodpecker: string;
+  nowMs: number;
+  currentUser: User;
+  triggeringTaskIds: string[];
+  onRun: (task: Task) => void;
+  onCancel: (row: Pipeline) => void;
+  onInspect: (row: Pipeline) => void;
+}) {
+  const triggeringTaskIDSet = useMemo(() => new Set(triggeringTaskIds), [triggeringTaskIds]);
+  if (!item) {
+    return (
+      <div className="deploy-object-detail-empty">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一个运维对象" />
+      </div>
+    );
+  }
+  const running = item.pipelines.filter((row) => ["running", "pending"].includes(row.status)).length;
+  const lastPipeline = item.pipelines[0];
+  return (
+    <div className="deploy-object-detail">
+      <div className="deploy-object-detail-head">
+        <div className="deploy-object-detail-title">
+          <Space wrap>
+            <Title level={4}>{item.title}</Title>
+            <Tag color={item.statusColor}>{item.statusLabel}</Tag>
+            <Tag>{item.kind === "deployment" ? "项目对象" : "维护对象"}</Tag>
+          </Space>
+          <Text type="secondary">{item.subtitle}</Text>
+        </div>
+        <Space className="deploy-object-actions" wrap>
+          {item.primaryTask && (
+            <Tooltip title={taskDisabledTitle(currentUser, item.primaryTask)}>
+              <span>
+                <Button
+                  type="primary"
+                  icon={item.kind === "deployment" ? <Rocket size={15} /> : <Play size={15} />}
+                  danger={item.primaryTask.risk === "danger"}
+                  loading={triggeringTaskIDSet.has(item.primaryTask.id)}
+                  disabled={!canRunTask(currentUser, item.primaryTask)}
+                  onClick={() => onRun(item.primaryTask!)}
+                >
+                  {item.kind === "deployment" ? "部署" : "执行"}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {item.rollbackTask && (
+            <Tooltip title={taskDisabledTitle(currentUser, item.rollbackTask)}>
+              <span>
+                <Button
+                  danger
+                  loading={triggeringTaskIDSet.has(item.rollbackTask.id)}
+                  disabled={!canRunTask(currentUser, item.rollbackTask)}
+                  onClick={() => onRun(item.rollbackTask!)}
+                >
+                  回退
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          <DeploymentExtraActions actions={item.extraTasks} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} onRun={onRun} />
+          {lastPipeline ? <Button href={pipelineURL(woodpecker, lastPipeline)} target="_blank" icon={<ExternalLink size={14} />}>Woodpecker</Button> : null}
+        </Space>
+      </div>
+
+      {item.deployment ? (
+        <div className="deploy-object-version-grid">
+          <DeployObjectMetric label="线上版本" value={deploymentVersionText(item.deployment, nowMs)} />
+          <DeployObjectMetric label="最近执行" value={`${productText(item.deployment.latest_action || item.deployment.last_action || "-")} · ${statusText(item.deployment.latest_status || item.deployment.last_status)}`} />
+          <DeployObjectMetric label="上一成功" value={item.deployment.previous_branch ? `${item.deployment.previous_branch} · ${(item.deployment.previous_commit || "").slice(0, 8) || "-"}` : "-"} />
+          <DeployObjectMetric label="配置分支" value={item.deployment.configured_branch || "main"} />
+        </div>
+      ) : item.primaryTask ? (
+        <div className="deploy-object-version-grid">
+          <DeployObjectMetric label="动作" value={pipelineTaskText(taskToPipelinePreview(state, item.primaryTask))} />
+          <DeployObjectMetric label="默认分支" value={item.primaryTask.branch || "main"} />
+          <DeployObjectMetric label="确认词" value={item.primaryTask.confirm_text || "无需确认"} />
+          <DeployObjectMetric label="最近流水" value={lastPipeline ? `#${lastPipeline.number} · ${statusText(lastPipeline.status)}` : "-"} />
+        </div>
+      ) : null}
+
+      {item.deployment?.deploy_verify_message && !item.deployment.deploy_verified && (
+        <Alert
+          className="deploy-object-alert"
+          type={deployVerifyColor(item.deployment) === "error" ? "error" : "warning"}
+          showIcon
+          message={shortDeploymentVerifyMessage(item.deployment)}
+          description={item.deployment.deploy_verify_message}
+        />
+      )}
+
+      <div className="deploy-object-section-head">
+        <Space size={8}>
+          <Activity size={16} />
+          <Text strong>相关流水线</Text>
+          {running ? <Tag color="processing">{running} 运行中</Tag> : null}
+        </Space>
+        <Text type="secondary">{item.pipelines.length ? `最近 ${item.pipelines.length} 条` : "暂无流水线"}</Text>
+      </div>
+      {item.pipelines.length ? (
+        <PipelineTable rows={item.pipelines} woodpecker={woodpecker} nowMs={nowMs} onCancel={onCancel} onInspect={onInspect} />
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这个对象还没有相关流水线记录" />
+      )}
+    </div>
+  );
+}
+
+function DeployObjectMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="deploy-object-metric">
+      <Text type="secondary">{label}</Text>
+      <Text strong ellipsis={{ tooltip: value }}>{value}</Text>
+    </div>
   );
 }
 
@@ -4236,6 +4451,118 @@ function commitLooksSame(left?: string, right?: string): boolean {
   const b = (right || "").trim().toLowerCase();
   if (!a || !b) return false;
   return a.startsWith(b) || b.startsWith(a);
+}
+
+function buildDeployObjects(state: StateResponse, rows: DeploymentStatus[], tasks: Task[], pipelines: Pipeline[], nowMs: number): DeployObject[] {
+  const deploymentRows = sortDeploymentRows(rows || []);
+  const managedTaskIDs = new Set(deploymentManagedTaskIDs(tasks || [], deploymentRows));
+  const objects: DeployObject[] = deploymentRows.map((row) => {
+    const actions = deploymentActionsForStatus(row, tasks || []);
+    const actionTasks = [actions.deploy, actions.rollback, ...actions.extras].filter(Boolean) as Task[];
+    const relatedPipelines = pipelines.filter((pipeline) => pipelineMatchesDeploymentObject(row, actionTasks, pipeline)).slice(0, 30);
+    const status = row.deploy_verified ? "已验证" : deployVerifyText(row);
+    const latestStatus = row.latest_status || row.last_status || "";
+    const attention = deploymentAttentionRank(row) <= 1 || relatedPipelines.some((pipeline) => ["running", "pending"].includes(pipeline.status));
+    return {
+      id: row.id,
+      kind: "deployment" as const,
+      title: productText(row.name),
+      subtitle: deploymentScopeText(row),
+      statusLabel: status,
+      statusColor: deployVerifyColor(row),
+      attention,
+      risk: latestStatus === "failure" || latestStatus === "error" ? "danger" : attention ? "warning" : "normal",
+      deployment: row,
+      primaryTask: actions.deploy,
+      rollbackTask: actions.rollback,
+      extraTasks: actions.extras,
+      pipelines: relatedPipelines,
+      searchText: [
+        row.name,
+        row.group,
+        row.repo_name,
+        row.configured_branch,
+        row.current_branch,
+        row.current_commit,
+        row.latest_action,
+        row.deploy_verify_message,
+        actionTasks.map((task) => [task.id, task.title, variablesText(task.variables)].join(" ")).join(" ")
+      ].join(" ").toLowerCase()
+    };
+  });
+
+  const maintenanceObjects = (tasks || [])
+    .filter((task) => !task.external_url && !managedTaskIDs.has(task.id))
+    .sort(taskLibrarySort)
+    .map((task) => {
+      const relatedPipelines = pipelines.filter((pipeline) => pipelineMatchesTask(task, pipeline)).slice(0, 30);
+      const latest = relatedPipelines[0];
+      const attention = task.risk === "danger" || ["failure", "error"].includes(latest?.status || "") || relatedPipelines.some((pipeline) => ["running", "pending"].includes(pipeline.status));
+      return {
+        id: `task:${task.id}`,
+        kind: "action" as const,
+        title: productText(task.title),
+        subtitle: `${taskGroupLabel(state, task)} · ${repoName(state, task)}`,
+        statusLabel: latest ? statusText(latest.status) : riskLabel(task.risk),
+        statusColor: latest ? statusColors[latest.status] || "default" : riskColors[task.risk] || "default",
+        attention,
+        risk: task.risk,
+        primaryTask: task,
+        extraTasks: [] as Task[],
+        pipelines: relatedPipelines,
+        searchText: [
+          task.id,
+          task.title,
+          task.description,
+          task.group,
+          task.branch,
+          repoName(state, task),
+          variablesText(task.variables)
+        ].join(" ").toLowerCase()
+      };
+    });
+
+  return [...objects, ...maintenanceObjects].sort((a, b) => {
+    if (a.attention !== b.attention) return a.attention ? -1 : 1;
+    if (a.kind !== b.kind) return a.kind === "deployment" ? -1 : 1;
+    const aTime = a.pipelines[0] ? pipelineSortTime(a.pipelines[0]) : 0;
+    const bTime = b.pipelines[0] ? pipelineSortTime(b.pipelines[0]) : 0;
+    if (aTime !== bTime) return bTime - aTime;
+    return a.title.localeCompare(b.title, "zh-CN");
+  });
+}
+
+function filterDeployObjects(objects: DeployObject[], query: string): DeployObject[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return objects;
+  return objects.filter((item) => item.searchText.includes(q));
+}
+
+function pipelineMatchesDeploymentObject(row: DeploymentStatus, tasks: Task[], pipeline: Pipeline): boolean {
+  if (Number(pipeline.repo_id || 0) !== row.repo_id) return false;
+  if (pipeline.number === row.pipeline || pipeline.number === row.latest_pipeline || pipeline.number === row.previous_pipeline) return true;
+  const taskIDs = new Set(tasks.map((task) => task.id));
+  if (pipeline.peapod_task_id && taskIDs.has(pipeline.peapod_task_id)) return true;
+  const projectID = pipelineProjectID(pipeline);
+  if (projectID && `repo-${row.repo_id}:${normalizeKey(projectID)}` === row.id) return true;
+  return false;
+}
+
+function pipelineMatchesTask(task: Task, pipeline: Pipeline): boolean {
+  if (Number(pipeline.repo_id || 0) !== task.repo_id) return false;
+  if (pipeline.peapod_task_id === task.id) return true;
+  if (pipeline.peapod_task_title && normalizeKey(pipeline.peapod_task_title) === normalizeKey(task.title)) return true;
+  const taskProjectID = task.variables?.PEAPOD_PROJECT_ID || task.variables?.ZEPHYR_PROJECT_ID || "";
+  const pipelineProject = pipelineProjectID(pipeline);
+  if (taskProjectID && pipelineProject && normalizeKey(taskProjectID) === normalizeKey(pipelineProject)) return true;
+  const action = String(task.variables?.DEPLOY_ACTION || "").toLowerCase();
+  const pipelineAction = String(pipeline.variables?.DEPLOY_ACTION || "").toLowerCase();
+  return Boolean(action && pipelineAction && action === pipelineAction && normalizeKey(task.group || task.title) === normalizeKey(pipeline.peapod_task_title || pipeline.message || ""));
+}
+
+function pipelineProjectID(pipeline: Pipeline): string {
+  const variables = pipeline.variables || {};
+  return variables.PEAPOD_PROJECT_ID || variables.ZEPHYR_PROJECT_ID || variables.PROJECT_ID || variables.SERVICE_ID || variables.DEPLOY_SERVICE || variables.APP || variables.PROJECT || "";
 }
 
 function taskLibrarySort(a: Task, b: Task): number {

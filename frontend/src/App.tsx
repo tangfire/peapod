@@ -523,11 +523,14 @@ function Shell({ page }: { page: "home" | "docs" }) {
             woodpecker={state.links.woodpecker}
             nowMs={nowMs}
             tasks={state.tasks || []}
+            pipelines={pipelines}
             currentUser={state.current_user}
             triggeringTaskIds={triggeringTaskIds}
             refreshing={refreshing}
             onRun={openRunTask}
             onRefresh={refreshState}
+            onCancel={cancelPipeline}
+            onInspect={openPipelineSummary}
           />
         );
       case "pipelines":
