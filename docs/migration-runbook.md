@@ -1,6 +1,6 @@
 # 迁移到专用运维/构建机 Runbook
 
-这份文档用于把 Peapod、Woodpecker、Beszel、Dozzle、Grafana/Loki 等运维能力从临时机器迁移到一台新的专用运维/构建机。目标是：迁完以后，写书猫、e站、9router 等业务机器只作为被管理节点，不再承担运维驾驶舱职责。
+这份文档用于把 Peapod、Woodpecker、Beszel、Dozzle、Grafana/Loki 等运维能力从临时机器迁移到一台新的专用运维/构建机。目标是：迁完以后，业务机器只作为被管理节点，不再承担运维驾驶舱职责。
 
 ## 迁移前确认
 
@@ -125,7 +125,7 @@ scp old-host:/opt/old-peapod/data/tasks.json /opt/peapod/data/peapod/tasks.json
 - `repo_id` 是否对应新 Woodpecker 里的 repo。
 - `branch` 是否是默认部署分支。
 - `variables` 是否仍匹配业务仓库的 `.woodpecker` 文件。
-- 写书猫、Peapod、9router、e站是否分别有部署和回退任务。
+- 业务服务、Peapod、网关或中转站是否分别有部署和回退任务。
 - 清理磁盘任务是否只清 Docker cache、构建缓存和明确允许的目录。
 
 如果 repo id 改了，优先在 Peapod 设置页修改任务配置，不要改源码。
@@ -159,7 +159,7 @@ sudo mkdir -p /opt/woodpecker-cache
 sudo git clone --branch main git@github.com:owner/repo.git /opt/woodpecker-cache/repo
 ```
 
-需要本地部署 runner 镜像的项目，也要在新构建机提前准备镜像，例如 `xiezuomao-deploy-runner:latest`、`9router-deploy-runner:latest`，否则 deploy step 会在第一轮找不到本地镜像。
+需要本地部署 runner 镜像的项目，也要在新构建机提前准备镜像，例如 `app-deploy-runner:latest`、`gateway-deploy-runner:latest`，否则 deploy step 会在第一轮找不到本地镜像。
 
 ## 迁移 Woodpecker
 
@@ -278,7 +278,7 @@ curl -I https://grafana.example.com
 - Peapod 可以登录。
 - Peapod 首页显示两台业务机资源。
 - Peapod 可以打开 Woodpecker、Beszel、Dozzle；完整观测方案下也可以打开 Grafana。
-- 写书猫部署任务可以触发，并能跳转到 Woodpecker 对应流水线。
+- 核心业务部署任务可以触发，并能跳转到 Woodpecker 对应流水线。
 - 失败流水线能在 Peapod 看到关键错误摘要。
 - 轻量方案下，Dozzle 能查看运维机本机 Docker 已保留日志并实时跟随新日志。
 - 完整观测方案下，生产机和业务机日志能在 Grafana/Loki 搜索。

@@ -139,3 +139,50 @@ func TestMaintenanceTaskDoesNotRequireDeploymentVerification(t *testing.T) {
 		t.Fatalf("normalizeTaskConfig maintenance returned error: %v", err)
 	}
 }
+
+func TestBuildTaskFromTemplateAddsVerificationDefaults(t *testing.T) {
+	template, ok := findTaskTemplate("docker-compose-service")
+	if !ok {
+		t.Fatal("docker-compose-service template not found")
+	}
+	task, err := buildTaskFromTemplate(template, TemplateApplyRequest{
+		RepoID:      12,
+		RepoName:    "owner/app",
+		Branch:      "main",
+		ProjectID:   "app",
+		ProjectName: "应用服务",
+		Environment: "production",
+	})
+	if err != nil {
+		t.Fatalf("buildTaskFromTemplate returned error: %v", err)
+	}
+	if task.Variables["PEAPOD_PROJECT_ID"] != "app" {
+		t.Fatalf("PEAPOD_PROJECT_ID = %q", task.Variables["PEAPOD_PROJECT_ID"])
+	}
+	if task.Variables["PEAPOD_PROJECT_ENV"] != "production" {
+		t.Fatalf("PEAPOD_PROJECT_ENV = %q", task.Variables["PEAPOD_PROJECT_ENV"])
+	}
+	if task.Variables["PEAPOD_DEPLOY_MARKER_PATH"] == "" {
+		t.Fatal("template did not add default marker path")
+	}
+	if !taskHasDeploymentVerification(task) {
+		t.Fatal("template task should have deployment verification")
+	}
+}
+
+func TestDoctorReadinessTreatsWarningAsNotReady(t *testing.T) {
+	readiness := doctorReadiness([]DoctorCheck{
+		{ID: "docker", Severity: "ok"},
+		{ID: "woodpecker-oauth", Severity: "warning"},
+	})
+	if readiness != "warning" {
+		t.Fatalf("readiness = %q, want warning", readiness)
+	}
+	readiness = doctorReadiness([]DoctorCheck{
+		{ID: "docker", Severity: "ok"},
+		{ID: "token", Severity: "error"},
+	})
+	if readiness != "blocked" {
+		t.Fatalf("readiness = %q, want blocked", readiness)
+	}
+}

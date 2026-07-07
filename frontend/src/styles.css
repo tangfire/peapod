@@ -1032,6 +1032,27 @@ body {
   font-size: 15px;
 }
 
+.doctor-summary-card .ant-list-item {
+  padding: 9px 0;
+}
+
+.doctor-summary-card .ant-list-item-meta {
+  min-width: 0;
+}
+
+.template-panel .ant-pro-card-body {
+  padding: 18px !important;
+}
+
+.template-preview-card {
+  background: #fbfdf9;
+  border-color: #dfe8d9;
+}
+
+.template-form .ant-form-item {
+  margin-bottom: 14px;
+}
+
 @keyframes logo-breathe {
   0%,
   100% {
@@ -1448,6 +1469,10 @@ body {
 
   .inline-create-form {
     grid-template-columns: 1fr;
+  }
+
+  .template-panel .ant-pro-card-body {
+    padding: 14px !important;
   }
 
   .mobile-deployment-list .ant-list-item,

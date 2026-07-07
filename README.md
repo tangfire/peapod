@@ -18,17 +18,17 @@ Peapod does not replace these systems. It hides the daily complexity so operator
 ## Quick Start
 
 ```bash
-git clone <your-peapod-repo> peapod
+git clone https://github.com/tangfire/peapod.git peapod
 cd peapod
-scripts/bootstrap.sh
-vi .env
-docker compose up -d --build
+scripts/install.sh
 ```
 
-This starts the lightweight stack. To also start Grafana, Prometheus, Loki, and Tempo:
+This creates `.env`, generates local secrets, creates a monitor SSH key, starts the lightweight stack, and prints the first login steps. Open Peapod, then finish setup from `Settings -> 接入向导`.
+
+To also start Grafana, Prometheus, Loki, and Tempo:
 
 ```bash
-docker compose --profile observability up -d --build
+scripts/install.sh --observability
 ```
 
 Open:
@@ -45,6 +45,32 @@ Run checks:
 scripts/doctor.sh
 go test ./...
 npm --prefix frontend run build
+```
+
+The intended daily flow is UI-first:
+
+1. `Settings -> 接入向导`: finish public URLs, Woodpecker token, Beszel, Dozzle/Grafana, SSH key and monitored hosts.
+2. `Settings -> 仓库与任务`: lookup/save Woodpecker repos, then create deployment tasks from templates.
+3. `Deploy`: run deploy/rollback from project status, not from raw pipeline variables.
+4. `Monitoring`: check host pressure and core containers.
+5. `Pipelines`: diagnose failures and jump to Woodpecker only when needed.
+
+## Lowest-Cost Setup Path
+
+For a small team or a fresh server, start with the lightweight mode:
+
+- One operations machine runs Peapod, MySQL, Woodpecker, Beszel, and Dozzle.
+- Business machines do not run Peapod. They only need Docker, a monitor SSH key, and optionally a Beszel agent.
+- Deployment tasks are created from Peapod templates; users should not edit `tasks.json` for normal onboarding.
+- Logs start with Dozzle and Docker log rotation. Enable Grafana/Loki only when searchable cross-machine history is actually needed.
+
+To prepare a business machine, copy the command from `Settings -> 接入向导 -> 业务机接入命令`. It uses `scripts/managed-host.sh` to create a low-privilege monitor user, install the Peapod monitor public key, and optionally install Docker.
+
+Back up or upgrade a self-hosted install:
+
+```bash
+scripts/backup.sh
+scripts/upgrade.sh
 ```
 
 ## Configuration Model
@@ -66,7 +92,14 @@ The bundled `examples/` folder contains:
 - `tasks.generic.json`: neutral example for a normal service
 - `tasks.peapod-self.json`: Peapod self-deploy tasks for Woodpecker
 - `monitor-hosts.generic.json`: local + remote host monitoring example
-- `tasks.novelcat.json`: our studio-specific migration example, intentionally outside the app defaults
+- `tasks.novelcat.json`: studio-specific migration example, intentionally outside the app defaults
+
+For daily use, prefer the Settings page:
+
+- Use the onboarding guide to see which integrations are ready.
+- Use repository lookup to save Woodpecker repos.
+- Use task templates to create deployment, rollback, cleanup, static site, Go backend, blue/green, and Peapod self-deploy tasks.
+- Use doctor checks before upgrades or when a new machine is being connected.
 
 ## Operations Docs
 
@@ -154,6 +187,16 @@ The bundled deploy script expects Peapod to live at `/opt/peapod` and run as the
 ## Build Queue
 
 Keep `WOODPECKER_MAX_WORKFLOWS=1` on small operations machines. Peapod can trigger multiple deployments, but Woodpecker will run only one workflow at a time and keep the rest pending, which prevents two large Docker builds from exhausting CPU, memory, or disk IO at the same time.
+
+## Backup, Restore, Upgrade
+
+Peapod includes conservative operation scripts:
+
+- `scripts/backup.sh`: stores `.env`, compose files, Peapod data, and a local MySQL dump when compose MySQL is running. It excludes SSH private keys by default.
+- `scripts/restore.sh`: restores from a backup directory and requires `CONFIRM_RESTORE=YES`.
+- `scripts/upgrade.sh`: runs doctor checks, backs up, pulls source/images, rebuilds Peapod, starts compose, and verifies health.
+
+These scripts are also listed in the onboarding guide so a new team can operate Peapod without memorizing the repository layout.
 
 ## Monitoring Hosts
 

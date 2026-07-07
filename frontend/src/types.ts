@@ -291,6 +291,32 @@ export type LogStrategyStatus = {
   alert_webhook_ready?: boolean;
 };
 
+export type OnboardingProgress = {
+  ready_count: number;
+  total_count: number;
+  blocked_count: number;
+  warning_count: number;
+  percent: number;
+  next_action?: string;
+};
+
+export type DoctorCheck = {
+  id: string;
+  title: string;
+  status: string;
+  severity: string;
+  message: string;
+  fix?: string;
+  action_label?: string;
+  action_url?: string;
+};
+
+export type DoctorSummary = {
+  readiness: "ready" | "warning" | "blocked" | string;
+  checks: DoctorCheck[];
+  updated_at: string;
+};
+
 export type SetupCommand = {
   id: string;
   title: string;
@@ -312,6 +338,8 @@ export type SetupConfigResponse = {
   checklist: SetupChecklistItem[];
   deployment_verification_summary: DeploymentVerificationSummary;
   log_strategy: LogStrategyStatus;
+  onboarding?: OnboardingProgress;
+  doctor?: DoctorSummary;
   commands: SetupCommand[];
   docs: SetupDocLink[];
   updated_at: string;
@@ -327,6 +355,47 @@ export type RunResult = {
 export type TaskConfig = {
   repos?: Record<string, string>;
   tasks: Task[];
+};
+
+export type TemplateInput = {
+  name: string;
+  label: string;
+  type?: string;
+  placeholder?: string;
+  default?: string;
+  required?: boolean;
+  help?: string;
+};
+
+export type TaskTemplate = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  default_group: string;
+  default_risk: Risk;
+  default_branch: string;
+  requires_verification: boolean;
+  variables: Record<string, string>;
+  inputs: TemplateInput[];
+};
+
+export type TemplateApplyRequest = {
+  repo_id: number;
+  repo_name: string;
+  branch: string;
+  project_id: string;
+  project_name: string;
+  environment: string;
+  marker_path?: string;
+  health_url?: string;
+  confirm_text?: string;
+  values?: Record<string, string>;
+};
+
+export type TemplateApplyResponse = {
+  task: Task;
+  config: TaskConfig;
 };
 
 export type AuditRecord = {

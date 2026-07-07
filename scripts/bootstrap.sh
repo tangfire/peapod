@@ -36,6 +36,16 @@ else
 fi
 
 mkdir -p data/peapod/ssh
+if [ ! -f data/peapod/ssh/monitor_ed25519 ]; then
+  if command -v ssh-keygen >/dev/null 2>&1; then
+    ssh-keygen -t ed25519 -N "" -C "peapod-monitor" -f data/peapod/ssh/monitor_ed25519 >/dev/null
+    echo "created monitor SSH key at data/peapod/ssh/monitor_ed25519"
+  else
+    echo "WARN: ssh-keygen is not installed; create data/peapod/ssh/monitor_ed25519 manually if SSH fallback monitoring is needed"
+  fi
+else
+  echo "monitor SSH key already exists; keep it"
+fi
 cache_dir="${WOODPECKER_CACHE_DIR:-/opt/woodpecker-cache}"
 if ! mkdir -p "$cache_dir" 2>/dev/null; then
   cache_dir="./data/woodpecker-cache"
@@ -45,6 +55,8 @@ if ! mkdir -p "$cache_dir" 2>/dev/null; then
   fi
 fi
 chmod 700 data/peapod/ssh
+chmod 600 data/peapod/ssh/monitor_ed25519 2>/dev/null || true
+chmod 644 data/peapod/ssh/monitor_ed25519.pub 2>/dev/null || true
 
 if [ ! -f data/peapod/tasks.json ]; then
   cp examples/tasks.generic.json data/peapod/tasks.json
@@ -53,6 +65,10 @@ fi
 
 echo
 echo "Next:"
-echo "  1. Edit .env: WOODPECKER_TOKEN, public URLs, Beszel account, optional DB DSN."
-echo "  2. Edit data/peapod/tasks.json or use Peapod Settings after login."
-echo "  3. Run: docker compose up -d --build"
+echo "  1. Run: scripts/install.sh"
+echo "  2. Open Peapod and follow Settings -> 接入向导."
+echo "  3. Use Settings -> 仓库与任务 -> 从模板创建任务."
+echo
+echo "Login:"
+echo "  username: ${PEAPOD_BOOTSTRAP_USERNAME:-admin}"
+echo "  password: grep '^PEAPOD_BOOTSTRAP_PASSWORD=' .env | cut -d= -f2-"

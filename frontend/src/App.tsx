@@ -218,6 +218,11 @@ function Shell({ page }: { page: "home" | "docs" }) {
     }
   }
 
+  async function reloadSettingsData() {
+    await loadState();
+    await loadCustomConfig();
+  }
+
   useEffect(() => {
     loadState();
     loadMonitoring();
@@ -536,7 +541,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
             customConfig={customConfig}
             auditRecords={auditRecords}
             auditLoading={auditLoading}
-            onReload={loadState}
+            onReload={reloadSettingsData}
             onAuditRefresh={() => loadAudit({ notify: true })}
             onAddTask={openNewTask}
             onEditTask={openEditTask}

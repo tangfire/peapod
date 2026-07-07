@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -129,6 +130,8 @@ type SetupConfigResponse struct {
 	Checklist                     []SetupChecklistItem          `json:"checklist"`
 	DeploymentVerificationSummary DeploymentVerificationSummary `json:"deployment_verification_summary"`
 	LogStrategy                   LogStrategyStatus             `json:"log_strategy"`
+	Onboarding                    OnboardingProgress            `json:"onboarding"`
+	Doctor                        DoctorSummary                 `json:"doctor"`
 	Commands                      []SetupCommand                `json:"commands"`
 	Docs                          []SetupDocLink                `json:"docs"`
 	UpdatedAt                     string                        `json:"updated_at"`
@@ -171,6 +174,32 @@ type LogStrategyStatus struct {
 	DockerLogMaxFile  string `json:"docker_log_max_file"`
 	DockerRetention   string `json:"docker_retention"`
 	AlertWebhookReady bool   `json:"alert_webhook_ready"`
+}
+
+type OnboardingProgress struct {
+	ReadyCount   int    `json:"ready_count"`
+	TotalCount   int    `json:"total_count"`
+	BlockedCount int    `json:"blocked_count"`
+	WarningCount int    `json:"warning_count"`
+	Percent      int    `json:"percent"`
+	NextAction   string `json:"next_action,omitempty"`
+}
+
+type DoctorSummary struct {
+	Readiness string        `json:"readiness"`
+	Checks    []DoctorCheck `json:"checks"`
+	UpdatedAt string        `json:"updated_at"`
+}
+
+type DoctorCheck struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message"`
+	Fix         string `json:"fix,omitempty"`
+	ActionLabel string `json:"action_label,omitempty"`
+	ActionURL   string `json:"action_url,omitempty"`
 }
 
 type SetupCommand struct {
@@ -357,6 +386,51 @@ type CustomTaskConfig struct {
 	Tasks []Task         `json:"tasks"`
 }
 
+type TaskTemplate struct {
+	ID                   string            `json:"id"`
+	Title                string            `json:"title"`
+	Description          string            `json:"description"`
+	Category             string            `json:"category"`
+	DefaultGroup         string            `json:"default_group"`
+	DefaultRisk          string            `json:"default_risk"`
+	DefaultBranch        string            `json:"default_branch"`
+	RequiresVerification bool              `json:"requires_verification"`
+	Variables            map[string]string `json:"variables"`
+	Inputs               []TemplateInput   `json:"inputs"`
+}
+
+type TemplateInput struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Type        string `json:"type,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+	Default     string `json:"default,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Help        string `json:"help,omitempty"`
+}
+
+type TemplatesResponse struct {
+	Templates []TaskTemplate `json:"templates"`
+}
+
+type TemplateApplyRequest struct {
+	RepoID      int               `json:"repo_id"`
+	RepoName    string            `json:"repo_name"`
+	Branch      string            `json:"branch"`
+	ProjectID   string            `json:"project_id"`
+	ProjectName string            `json:"project_name"`
+	Environment string            `json:"environment"`
+	MarkerPath  string            `json:"marker_path"`
+	HealthURL   string            `json:"health_url"`
+	ConfirmText string            `json:"confirm_text"`
+	Values      map[string]string `json:"values"`
+}
+
+type TemplateApplyResponse struct {
+	Task   Task             `json:"task"`
+	Config CustomTaskConfig `json:"config"`
+}
+
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -454,6 +528,9 @@ func main() {
 	mux.HandleFunc("/api/me", app.auth(app.me))
 	mux.HandleFunc("/api/me/password", app.auth(app.changeOwnPassword))
 	mux.HandleFunc("/api/setup/config", app.auth(app.setupConfig))
+	mux.HandleFunc("/api/doctor/run", app.auth(app.doctorRun))
+	mux.HandleFunc("/api/templates", app.auth(app.templates))
+	mux.HandleFunc("/api/templates/", app.auth(app.templateAction))
 	mux.HandleFunc("/api/woodpecker/repos", app.auth(app.woodpeckerRepos))
 	mux.HandleFunc("/api/woodpecker/repos/", app.auth(app.woodpeckerRepoAction))
 	mux.HandleFunc("/api/tasks/", app.auth(app.runTask))
@@ -1279,6 +1356,124 @@ func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *App) doctorRun(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	hosts := parseMonitorHosts(a.cfg)
+	verification := deploymentVerificationSummary(a.configuredTasks())
+	logStrategy := a.logStrategyStatus()
+	checklist := a.setupChecklist(hosts, verification, logStrategy)
+	doctor := a.doctorSummary(time.Now(), checklist)
+	_ = a.writeAudit(AuditRecord{
+		Time:      time.Now().Format(time.RFC3339),
+		UserID:    user.ID,
+		Username:  user.Username,
+		RemoteIP:  remoteIP(r),
+		TaskID:    "doctor-run",
+		TaskTitle: "运行 Peapod 体检",
+		Variables: map[string]string{"readiness": doctor.Readiness},
+		Status:    "ok",
+	})
+	writeJSON(w, doctor)
+}
+
+func (a *App) templates(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, TemplatesResponse{Templates: taskTemplates()})
+}
+
+func (a *App) templateAction(w http.ResponseWriter, r *http.Request) {
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/templates/"), "/")
+	if !strings.HasSuffix(path, "/apply") {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSuffix(path, "/apply")
+	id = strings.Trim(id, "/")
+	template, ok := findTaskTemplate(id)
+	if !ok {
+		http.Error(w, "template not found", http.StatusNotFound)
+		return
+	}
+	var req TemplateApplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	task, err := buildTaskFromTemplate(template, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := a.loadCustomTaskConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if cfg.Repos == nil {
+		cfg.Repos = map[int]string{}
+	}
+	if task.RepoName != "" {
+		cfg.Repos[task.RepoID] = task.RepoName
+	}
+	replaced := false
+	for i := range cfg.Tasks {
+		if cfg.Tasks[i].ID == task.ID {
+			cfg.Tasks[i] = task
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		cfg.Tasks = append(cfg.Tasks, task)
+	}
+	if err := a.saveCustomTaskConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	_ = a.writeAudit(AuditRecord{
+		Time:      time.Now().Format(time.RFC3339),
+		UserID:    user.ID,
+		Username:  user.Username,
+		RemoteIP:  remoteIP(r),
+		TaskID:    "template-apply",
+		TaskTitle: "套用任务模板",
+		RepoID:    task.RepoID,
+		Branch:    task.Branch,
+		Variables: map[string]string{
+			"template": template.ID,
+			"task":     task.ID,
+			"project":  variableValue(task.Variables, "PEAPOD_PROJECT_ID"),
+		},
+		Status: "ok",
+	})
+	writeJSON(w, TemplateApplyResponse{Task: task, Config: cfg})
 }
 
 func (a *App) woodpeckerRepos(w http.ResponseWriter, r *http.Request) {
@@ -3117,6 +3312,7 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 	verification := deploymentVerificationSummary(a.configuredTasks())
 	logStrategy := a.logStrategyStatus()
 	checklist := a.setupChecklist(hosts, verification, logStrategy)
+	doctor := a.doctorSummary(time.Now(), checklist)
 	return SetupConfigResponse{
 		Config: config,
 		Secrets: map[string]bool{
@@ -3131,10 +3327,151 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 		Checklist:                     checklist,
 		DeploymentVerificationSummary: verification,
 		LogStrategy:                   logStrategy,
+		Onboarding:                    onboardingProgress(checklist),
+		Doctor:                        doctor,
 		Commands:                      a.setupCommands(hosts),
 		Docs:                          setupDocLinks(),
 		UpdatedAt:                     now.Format(time.RFC3339),
 	}
+}
+
+func onboardingProgress(checklist []SetupChecklistItem) OnboardingProgress {
+	progress := OnboardingProgress{TotalCount: len(checklist)}
+	for _, item := range checklist {
+		switch item.Status {
+		case "ok", "optional":
+			progress.ReadyCount++
+		case "error", "critical":
+			progress.BlockedCount++
+		case "warning", "unknown":
+			progress.WarningCount++
+		}
+		if progress.NextAction == "" && (item.Status == "error" || item.Status == "critical" || item.Status == "warning") {
+			progress.NextAction = item.Title
+			if item.Fix != "" {
+				progress.NextAction = item.Title + "：" + item.Fix
+			}
+		}
+	}
+	if progress.TotalCount > 0 {
+		progress.Percent = int(float64(progress.ReadyCount) / float64(progress.TotalCount) * 100)
+	}
+	if progress.NextAction == "" && progress.WarningCount > 0 {
+		for _, item := range checklist {
+			if item.Status == "unknown" {
+				progress.NextAction = item.Title + "：" + fallbackText(item.Fix, item.Message)
+				break
+			}
+		}
+	}
+	if progress.NextAction == "" {
+		progress.NextAction = "核心接入已完成，可以开始配置仓库和部署任务。"
+	}
+	return progress
+}
+
+func (a *App) doctorSummary(now time.Time, checklist []SetupChecklistItem) DoctorSummary {
+	checks := make([]DoctorCheck, 0, len(checklist)+6)
+	for _, item := range checklist {
+		checks = append(checks, DoctorCheck{
+			ID:          item.ID,
+			Title:       item.Title,
+			Status:      item.Status,
+			Severity:    fallbackText(item.Severity, item.Status),
+			Message:     item.Message,
+			Fix:         item.Fix,
+			ActionLabel: item.ActionLabel,
+			ActionURL:   item.ActionURL,
+		})
+	}
+	checks = append(checks, a.localDoctorChecks()...)
+	return DoctorSummary{
+		Readiness: doctorReadiness(checks),
+		Checks:    checks,
+		UpdatedAt: now.Format(time.RFC3339),
+	}
+}
+
+func doctorReadiness(checks []DoctorCheck) string {
+	hasWarning := false
+	for _, check := range checks {
+		switch check.Severity {
+		case "error", "critical":
+			return "blocked"
+		case "warning":
+			hasWarning = true
+		}
+	}
+	if hasWarning {
+		return "warning"
+	}
+	return "ready"
+}
+
+func (a *App) localDoctorChecks() []DoctorCheck {
+	checks := []DoctorCheck{}
+	add := func(check DoctorCheck) {
+		if check.Severity == "" {
+			check.Severity = check.Status
+		}
+		checks = append(checks, check)
+	}
+	add(commandDoctorCheck("docker", "Docker Engine", []string{"docker", "--version"}, "安装 Docker，并确认当前用户可以访问 Docker。"))
+	add(commandDoctorCheck("docker-compose", "Docker Compose", []string{"docker", "compose", "version"}, "安装 Docker Compose plugin。"))
+	add(fileDoctorCheck("env-file", ".env 文件", ".env", "运行 scripts/bootstrap.sh 生成 .env，再补充公开地址和密钥。"))
+	add(fileDoctorCheck("tasks-file", "任务配置文件", a.cfg.TasksPath, "进入配置中心使用任务模板，或准备 data/peapod/tasks.json。"))
+	if a.store == nil {
+		add(DoctorCheck{
+			ID:       "database-auth",
+			Title:    "团队账号数据库",
+			Status:   "warning",
+			Severity: "warning",
+			Message:  "当前没有启用数据库账号体系，只能用共享密码或旧兼容模式。",
+			Fix:      "配置 PEAPOD_DB_DSN，启用成员账号、审计和接入配置保存。",
+		})
+	} else {
+		add(DoctorCheck{ID: "database-auth", Title: "团队账号数据库", Status: "ok", Severity: "ok", Message: "数据库账号体系已启用。"})
+	}
+	return checks
+}
+
+func commandDoctorCheck(id string, title string, args []string, fix string) DoctorCheck {
+	if len(args) == 0 {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "检查命令未配置。", Fix: fix}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	output, err := cmd.CombinedOutput()
+	message := strings.TrimSpace(string(output))
+	if len(message) > 180 {
+		message = message[:180] + "..."
+	}
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			message = "检查超时"
+		}
+		if message == "" {
+			message = err.Error()
+		}
+		return DoctorCheck{ID: id, Title: title, Status: "error", Severity: "error", Message: message, Fix: fix}
+	}
+	return DoctorCheck{ID: id, Title: title, Status: "ok", Severity: "ok", Message: fallbackText(message, "可用")}
+}
+
+func fileDoctorCheck(id string, title string, path string, fix string) DoctorCheck {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "路径未配置。", Fix: fix}
+	}
+	if _, err := os.Stat(path); err != nil {
+		severity := "warning"
+		if id == "env-file" {
+			severity = "error"
+		}
+		return DoctorCheck{ID: id, Title: title, Status: severity, Severity: severity, Message: "未找到 " + path, Fix: fix}
+	}
+	return DoctorCheck{ID: id, Title: title, Status: "ok", Severity: "ok", Message: path + " 已存在。"}
 }
 
 func (a *App) setupStatus(hosts []MonitorHostConfig) []SetupStatusItem {
@@ -3436,15 +3773,18 @@ func (a *App) setupCommands(hosts []MonitorHostConfig) []SetupCommand {
 	}
 	return []SetupCommand{
 		{
+			ID:          "install-peapod",
+			Title:       "安装 Peapod 运维机",
+			Description: "在运维/构建机 clone 仓库后执行。默认启动轻量栈，不强制 Grafana/Loki。",
+			Command: strings.TrimSpace(`git clone https://github.com/tangfire/peapod.git peapod
+cd peapod
+scripts/install.sh`),
+		},
+		{
 			ID:          "host-preflight",
-			Title:       "被管机器基础环境",
-			Description: "在每台业务机上安装 Docker 和 Compose 插件。",
-			Command: strings.TrimSpace(`sudo apt-get update
-sudo apt-get install -y ca-certificates curl git
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"
-docker version
-docker compose version`),
+			Title:       "被管机器一键准备",
+			Description: "在每台业务机上执行，完成基础信息检查、可选 Docker 安装、监控用户和 Peapod 只读公钥写入。",
+			Command:     fmt.Sprintf(`curl -fsSL https://raw.githubusercontent.com/tangfire/peapod/main/scripts/managed-host.sh | PEAPOD_MONITOR_PUBLIC_KEY='%s' PEAPOD_MANAGED_USER=peapod-monitor INSTALL_DOCKER=1 sh`, publicKey),
 		},
 		{
 			ID:          "monitor-key",
@@ -3469,6 +3809,18 @@ chmod 600 ~/.ssh/authorized_keys`, publicKey, publicKey),
 # 采集：Docker logs、Caddy/Nginx logs、应用结构化日志
 # 推送：中心 Loki
 # 完成后在 Grafana 里按 host / project / container 查询。`),
+		},
+		{
+			ID:          "backup",
+			Title:       "备份 Peapod",
+			Description: "升级或迁移前执行。默认备份配置、任务、审计和数据库 dump，不把 SSH 私钥打进备份包。",
+			Command:     "scripts/backup.sh",
+		},
+		{
+			ID:          "upgrade",
+			Title:       "升级 Peapod",
+			Description: "先体检、自动备份，再拉取更新、构建并验证健康检查。",
+			Command:     "scripts/upgrade.sh",
 		},
 	}
 }
@@ -3932,6 +4284,257 @@ func (a *App) saveConfiguredRepo(repoID int, repoName string) error {
 	}
 	cfg.Repos[repoID] = repoName
 	return a.saveCustomTaskConfig(cfg)
+}
+
+func taskTemplates() []TaskTemplate {
+	commonInputs := []TemplateInput{
+		{Name: "repo_id", Label: "Woodpecker Repo ID", Type: "number", Required: true, Placeholder: "3"},
+		{Name: "repo_name", Label: "仓库显示名", Required: true, Placeholder: "owner/service"},
+		{Name: "branch", Label: "默认分支", Default: "main", Required: true, Placeholder: "main"},
+		{Name: "project_id", Label: "项目 ID", Required: true, Placeholder: "my-service", Help: "用于归并部署、回退和线上版本状态。"},
+		{Name: "project_name", Label: "项目名称", Required: true, Placeholder: "业务服务"},
+		{Name: "environment", Label: "所属环境", Type: "environment", Default: "production", Required: true},
+		{Name: "marker_path", Label: "版本 marker 路径", Placeholder: "/opt/my-service/.deploy/current-source-sha", Help: "部署脚本落地后写入实际 commit。"},
+		{Name: "health_url", Label: "健康检查 URL", Placeholder: "http://127.0.0.1:8080/healthz", Help: "返回 2xx/3xx 才算部署可信。"},
+	}
+	return []TaskTemplate{
+		{
+			ID:                   "docker-compose-service",
+			Title:                "Docker Compose 服务部署",
+			Description:          "适合 Go 后端、API、worker 等 compose 服务。默认生成可信部署变量。",
+			Category:             "部署",
+			DefaultGroup:         "业务服务",
+			DefaultRisk:          "warning",
+			DefaultBranch:        "main",
+			RequiresVerification: true,
+			Variables: map[string]string{
+				"DEPLOY_ACTION":        "deploy",
+				"DEPLOY_STRATEGY":      "compose",
+				"PEAPOD_PROJECT_TYPE":  "docker-compose",
+				"PEAPOD_PROJECT_GROUP": "service",
+			},
+			Inputs: append([]TemplateInput{}, commonInputs...),
+		},
+		{
+			ID:                   "static-frontend",
+			Title:                "静态前端部署",
+			Description:          "适合官网、管理台、Vite/React 构建产物发布。",
+			Category:             "部署",
+			DefaultGroup:         "前端站点",
+			DefaultRisk:          "warning",
+			DefaultBranch:        "main",
+			RequiresVerification: true,
+			Variables: map[string]string{
+				"DEPLOY_ACTION":        "deploy",
+				"DEPLOY_STRATEGY":      "static",
+				"PEAPOD_PROJECT_TYPE":  "static-site",
+				"PEAPOD_PROJECT_GROUP": "site",
+			},
+			Inputs: append([]TemplateInput{}, commonInputs...),
+		},
+		{
+			ID:                   "go-backend",
+			Title:                "Go 后端部署",
+			Description:          "适合 Go 服务构建镜像或二进制后部署。",
+			Category:             "部署",
+			DefaultGroup:         "后端服务",
+			DefaultRisk:          "warning",
+			DefaultBranch:        "main",
+			RequiresVerification: true,
+			Variables: map[string]string{
+				"DEPLOY_ACTION":        "deploy",
+				"BUILD_RUNTIME":        "go",
+				"DEPLOY_STRATEGY":      "compose",
+				"PEAPOD_PROJECT_TYPE":  "go-backend",
+				"PEAPOD_PROJECT_GROUP": "service",
+			},
+			Inputs: append([]TemplateInput{}, commonInputs...),
+		},
+		{
+			ID:                   "blue-green",
+			Title:                "蓝绿部署",
+			Description:          "适合需要槽位切换、健康检查和快速回退的服务。",
+			Category:             "部署",
+			DefaultGroup:         "业务服务",
+			DefaultRisk:          "danger",
+			DefaultBranch:        "main",
+			RequiresVerification: true,
+			Variables: map[string]string{
+				"DEPLOY_ACTION":        "deploy",
+				"DEPLOY_STRATEGY":      "blue-green",
+				"PEAPOD_PROJECT_TYPE":  "blue-green",
+				"PEAPOD_PROJECT_GROUP": "service",
+			},
+			Inputs: append([]TemplateInput{}, commonInputs...),
+		},
+		{
+			ID:                   "disk-cleanup",
+			Title:                "磁盘清理",
+			Description:          "适合清理 Docker build cache、悬空镜像和明确允许的临时目录。",
+			Category:             "维护",
+			DefaultGroup:         "运维维护",
+			DefaultRisk:          "danger",
+			DefaultBranch:        "main",
+			RequiresVerification: false,
+			Variables: map[string]string{
+				"DEPLOY_ACTION": "cleanup",
+				"CLEANUP_MODE":  "safe",
+			},
+			Inputs: []TemplateInput{
+				{Name: "repo_id", Label: "Woodpecker Repo ID", Type: "number", Required: true, Placeholder: "3"},
+				{Name: "repo_name", Label: "仓库显示名", Required: true, Placeholder: "owner/ops"},
+				{Name: "branch", Label: "默认分支", Default: "main", Required: true},
+				{Name: "project_id", Label: "维护目标 ID", Required: true, Placeholder: "prod-host"},
+				{Name: "project_name", Label: "维护目标名称", Required: true, Placeholder: "生产机磁盘清理"},
+				{Name: "environment", Label: "所属环境", Type: "environment", Default: "operations", Required: true},
+			},
+		},
+		{
+			ID:                   "peapod-self-deploy",
+			Title:                "Peapod 自部署",
+			Description:          "让 Peapod 自己也走 Woodpecker 部署和健康验证。",
+			Category:             "运维",
+			DefaultGroup:         "Peapod",
+			DefaultRisk:          "danger",
+			DefaultBranch:        "main",
+			RequiresVerification: true,
+			Variables: map[string]string{
+				"DEPLOY_ACTION":       "deploy",
+				"PEAPOD_DEPLOY_DIR":   "/opt/peapod",
+				"PEAPOD_HEALTH_URL":   "http://127.0.0.1:8095/healthz",
+				"PEAPOD_PROJECT_TYPE": "peapod",
+			},
+			Inputs: append([]TemplateInput{}, commonInputs...),
+		},
+	}
+}
+
+func findTaskTemplate(id string) (TaskTemplate, bool) {
+	id = strings.TrimSpace(id)
+	for _, template := range taskTemplates() {
+		if template.ID == id {
+			return template, true
+		}
+	}
+	return TaskTemplate{}, false
+}
+
+func buildTaskFromTemplate(template TaskTemplate, req TemplateApplyRequest) (Task, error) {
+	projectID := normalizeTaskID(firstNonEmptyString(req.ProjectID, req.Values["project_id"]))
+	if projectID == "" {
+		return Task{}, errors.New("项目 ID 不能为空")
+	}
+	projectName := strings.TrimSpace(firstNonEmptyString(req.ProjectName, req.Values["project_name"]))
+	if projectName == "" {
+		return Task{}, errors.New("项目名称不能为空")
+	}
+	repoID := req.RepoID
+	if repoID <= 0 {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(req.Values["repo_id"])); err == nil {
+			repoID = parsed
+		}
+	}
+	if repoID <= 0 {
+		return Task{}, errors.New("Woodpecker Repo ID 必须大于 0")
+	}
+	repoName := strings.TrimSpace(firstNonEmptyString(req.RepoName, req.Values["repo_name"]))
+	if repoName == "" {
+		repoName = fmt.Sprintf("Repo %d", repoID)
+	}
+	branch := strings.TrimSpace(firstNonEmptyString(req.Branch, req.Values["branch"], template.DefaultBranch, "main"))
+	environment := normalizeEnvironment(firstNonEmptyString(req.Environment, req.Values["environment"], "production"))
+	markerPath := strings.TrimSpace(firstNonEmptyString(req.MarkerPath, req.Values["marker_path"]))
+	healthURL := strings.TrimSpace(firstNonEmptyString(req.HealthURL, req.Values["health_url"]))
+	if template.RequiresVerification && markerPath == "" && healthURL == "" {
+		markerPath = fmt.Sprintf("/opt/%s/.deploy/current-source-sha", projectID)
+	}
+	variables := cloneMap(template.Variables)
+	for key, value := range req.Values {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" || isReservedTemplateInput(key) {
+			continue
+		}
+		variables[key] = value
+	}
+	variables["PEAPOD_PROJECT_ID"] = projectID
+	variables["PEAPOD_PROJECT_NAME"] = projectName
+	variables["PEAPOD_PROJECT_ENV"] = environment
+	if markerPath != "" {
+		variables["PEAPOD_DEPLOY_MARKER_PATH"] = markerPath
+	}
+	if healthURL != "" {
+		variables["PEAPOD_DEPLOY_VERIFY_URL"] = healthURL
+	}
+	confirm := strings.TrimSpace(req.ConfirmText)
+	if confirm == "" && template.DefaultRisk == "danger" {
+		confirm = strings.ToUpper(environment)
+		if confirm == "OPERATIONS" {
+			confirm = "OPS"
+		}
+	}
+	task := Task{
+		ID:          normalizeTaskID(template.ID + "-" + environment + "-" + projectID),
+		Group:       fallbackText(environmentLabel(environment), template.DefaultGroup),
+		Title:       template.Title + " · " + projectName,
+		Description: template.Description,
+		RepoID:      repoID,
+		RepoName:    repoName,
+		Branch:      branch,
+		Variables:   variables,
+		Risk:        fallbackText(template.DefaultRisk, "normal"),
+		ConfirmText: confirm,
+	}
+	if task.Group == "" {
+		task.Group = template.DefaultGroup
+	}
+	if err := normalizeTaskConfig(&task); err != nil {
+		return Task{}, err
+	}
+	task.Custom = true
+	return task, nil
+}
+
+func isReservedTemplateInput(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "repo_id", "repo_name", "branch", "project_id", "project_name", "environment", "marker_path", "health_url", "confirm_text":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeEnvironment(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ops", "operation", "operations", "builder", "build":
+		return "operations"
+	case "prod", "production":
+		return "production"
+	case "stage", "staging", "test", "testing", "dev":
+		return "staging"
+	case "service", "business":
+		return "service"
+	default:
+		if strings.TrimSpace(value) == "" {
+			return "production"
+		}
+		return normalizeTaskID(value)
+	}
+}
+
+func environmentLabel(value string) string {
+	switch normalizeEnvironment(value) {
+	case "operations":
+		return "运维机"
+	case "production":
+		return "生产机"
+	case "staging":
+		return "测试机"
+	case "service":
+		return "业务机"
+	default:
+		return value
+	}
 }
 
 func normalizeTaskConfig(task *Task) error {

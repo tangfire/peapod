@@ -70,6 +70,8 @@ import type {
   StateResponse,
   Task,
   TaskConfig,
+  TaskTemplate,
+  TemplateApplyResponse,
   User,
   WoodpeckerRepo,
   WoodpeckerReposResponse
@@ -463,6 +465,7 @@ export function SettingsPage({
       children: (
         <Space direction="vertical" size={16} className="side-stack">
           {state.current_user.role === "admin" ? <RepositoryConfigPanel state={state} onReload={onReload} /> : <Alert type="info" showIcon message="仓库配置只允许管理员查看和修改" />}
+          {state.current_user.role === "admin" && state.configurable && <TaskTemplatePanel state={state} onApplied={onReload} />}
           {state.configurable ? (
             <TaskConfigView config={customConfig} tasks={state.tasks || []} onAdd={onAddTask} onEdit={onEditTask} onDelete={onDeleteTask} />
           ) : (
@@ -2182,14 +2185,37 @@ function RepositoryConfigPanel({ state, onReload }: { state: StateResponse; onRe
   );
 }
 
-function SetupGuidePanel({ setup, loading, onRefresh }: { setup: SetupConfigResponse | null; loading: boolean; onRefresh: () => void }) {
+function SetupGuidePanel({
+  setup,
+  loading,
+  doctorRunning,
+  onRefresh,
+  onDoctorRun
+}: {
+  setup: SetupConfigResponse | null;
+  loading: boolean;
+  doctorRunning: boolean;
+  onRefresh: () => void;
+  onDoctorRun: () => void;
+}) {
   const checklist = setup?.checklist || [];
   const verification = setup?.deployment_verification_summary;
   const logStrategy = setup?.log_strategy;
+  const onboarding = setup?.onboarding;
+  const doctorChecks = setup?.doctor?.checks || [];
   return (
     <ProCard
       title="接入向导"
-      extra={<Button icon={<RefreshCw size={16} />} loading={loading} onClick={onRefresh}>刷新检查</Button>}
+      extra={
+        <Space wrap>
+          <Button icon={<Gauge size={16} />} loading={doctorRunning} onClick={onDoctorRun}>
+            运行体检
+          </Button>
+          <Button icon={<RefreshCw size={16} />} loading={loading} onClick={onRefresh}>
+            刷新检查
+          </Button>
+        </Space>
+      }
     >
       <Space direction="vertical" size={14} className="side-stack">
         <Row gutter={[12, 12]}>
@@ -2198,7 +2224,8 @@ function SetupGuidePanel({ setup, loading, onRefresh }: { setup: SetupConfigResp
               <Space direction="vertical" size={8}>
                 <Tag color={readinessColor(setup?.readiness || "warning")}>{readinessText(setup?.readiness || "warning")}</Tag>
                 <Text strong>上线准备度</Text>
-                <Text type="secondary">阻断项会优先显示；warning 项不阻塞，但建议上线前处理。</Text>
+                <Progress percent={onboarding?.percent || 0} size="small" status={setup?.readiness === "blocked" ? "exception" : "active"} />
+                <Text type="secondary">{onboarding?.next_action || "阻断项会优先显示；warning 项不阻塞，但建议上线前处理。"}</Text>
               </Space>
             </Card>
           </Col>
@@ -2221,7 +2248,216 @@ function SetupGuidePanel({ setup, loading, onRefresh }: { setup: SetupConfigResp
             </Col>
           )}
         </Row>
+        {doctorChecks.length > 0 && (
+          <Card size="small" title="体检摘要" className="doctor-summary-card">
+            <List
+              size="small"
+              dataSource={doctorChecks.slice(0, 8)}
+              renderItem={(item) => (
+                <List.Item
+                  actions={item.action_url ? [<Button key="open" size="small" href={item.action_url} target="_blank">{item.action_label || "打开"}</Button>] : undefined}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Space wrap size={6}>
+                        <Tag color={setupStatusColor(item.status)}>{setupStatusText(item.status)}</Tag>
+                        <Text strong>{item.title}</Text>
+                      </Space>
+                    }
+                    description={item.fix ? `${item.message} · ${item.fix}` : item.message}
+                  />
+                </List.Item>
+              )}
+            />
+          </Card>
+        )}
       </Space>
+    </ProCard>
+  );
+}
+
+function TaskTemplatePanel({ state, onApplied }: { state: StateResponse; onApplied: () => Promise<void> }) {
+  const { message } = AntApp.useApp();
+  const [form] = Form.useForm();
+  const [templates, setTemplates] = useState<TaskTemplate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const selectedID = Form.useWatch("template_id", form);
+  const selected = templates.find((item) => item.id === selectedID) || templates[0];
+
+  async function loadTemplates() {
+    setLoading(true);
+    try {
+      const data = await api<{ templates: TaskTemplate[] }>("/api/templates");
+      const rows = data.templates || [];
+      setTemplates(rows);
+      if (rows.length && !form.getFieldValue("template_id")) {
+        form.setFieldsValue({
+          template_id: rows[0].id,
+          branch: rows[0].default_branch || "main",
+          environment: "production"
+        });
+      }
+    } catch (error) {
+      message.error(errorText(error) || "任务模板加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    const currentBranch = form.getFieldValue("branch");
+    form.setFieldsValue({
+      branch: currentBranch || selected.default_branch || "main",
+      environment: form.getFieldValue("environment") || "production"
+    });
+  }, [selectedID]);
+
+  async function applyTemplate(values: Record<string, unknown>) {
+    const templateID = String(values.template_id || selected?.id || "");
+    if (!templateID) {
+      message.warning("请选择任务模板");
+      return;
+    }
+    setApplying(true);
+    try {
+      const data = await api<TemplateApplyResponse>(`/api/templates/${encodeURIComponent(templateID)}/apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          repo_id: Number(values.repo_id || 0),
+          repo_name: String(values.repo_name || ""),
+          branch: String(values.branch || "main"),
+          project_id: String(values.project_id || ""),
+          project_name: String(values.project_name || ""),
+          environment: String(values.environment || "production"),
+          marker_path: String(values.marker_path || ""),
+          health_url: String(values.health_url || ""),
+          confirm_text: String(values.confirm_text || "")
+        })
+      });
+      message.success(`已生成任务：${data.task.title}`);
+      form.resetFields(["project_id", "project_name", "marker_path", "health_url", "confirm_text"]);
+      await onApplied();
+    } catch (error) {
+      message.error(errorText(error) || "套用模板失败");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <ProCard
+      title="从模板创建任务"
+      className="template-panel"
+      extra={<Button icon={<RefreshCw size={16} />} loading={loading} onClick={loadTemplates}>刷新模板</Button>}
+    >
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={8}>
+          <Space direction="vertical" size={10} className="side-stack">
+            <Text type="secondary">选择最接近的场景，Peapod 会生成 Woodpecker 变量、项目归并字段和部署验证项。</Text>
+            {selected && (
+              <Card size="small" className="template-preview-card">
+                <Space direction="vertical" size={8} className="side-stack">
+                  <Space wrap>
+                    <Tag color={selected.requires_verification ? "green" : "blue"}>{selected.category}</Tag>
+                    <Tag color={riskColors[selected.default_risk] || "default"}>{riskLabel(selected.default_risk)}</Tag>
+                    {selected.requires_verification && <Tag color="success">可信部署</Tag>}
+                  </Space>
+                  <Text strong>{selected.title}</Text>
+                  <Text type="secondary">{selected.description}</Text>
+                  <Text className="checklist-fix">
+                    默认变量：{Object.keys(selected.variables || {}).slice(0, 5).join("、") || "-"}
+                  </Text>
+                </Space>
+              </Card>
+            )}
+          </Space>
+        </Col>
+        <Col xs={24} xl={16}>
+          <Form form={form} layout="vertical" onFinish={applyTemplate} className="template-form">
+            <Row gutter={12}>
+              <Col xs={24} md={12}>
+                <Form.Item label="模板" name="template_id" rules={[{ required: true, message: "请选择模板" }]}>
+                  <Select
+                    loading={loading}
+                    options={templates.map((item) => ({ value: item.id, label: item.title }))}
+                    placeholder="选择模板"
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item label="Repo ID" name="repo_id" rules={[{ required: true, message: "请输入 Repo ID" }]}>
+                  <InputNumber min={1} style={{ width: "100%" }} placeholder="3" />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item label="默认分支" name="branch" rules={[{ required: true, message: "请输入分支" }]}>
+                  <Input placeholder="main" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col xs={24} md={12}>
+                <Form.Item label="仓库显示名" name="repo_name" rules={[{ required: true, message: "请输入仓库名" }]}>
+                  <Input placeholder="owner/service" />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item label="项目 ID" name="project_id" rules={[{ required: true, message: "请输入项目 ID" }]}>
+                  <Input placeholder="my-service" />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item label="环境" name="environment" rules={[{ required: true }]}>
+                  <Select
+                    options={[
+                      { value: "operations", label: "运维机" },
+                      { value: "production", label: "生产机" },
+                      { value: "staging", label: "测试机" },
+                      { value: "service", label: "业务机" }
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col xs={24} md={12}>
+                <Form.Item label="项目名称" name="project_name" rules={[{ required: true, message: "请输入项目名称" }]}>
+                  <Input placeholder="业务服务" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item label="确认文字" name="confirm_text" extra="高危模板可留空，后端会按环境生成默认确认词。">
+                  <Input placeholder="PRODUCTION" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col xs={24} md={12}>
+                <Form.Item label="版本 marker 路径" name="marker_path" extra="部署脚本写入实际 commit 的文件；部署模板未填时会给出默认路径。">
+                  <Input placeholder="/opt/my-service/.deploy/current-source-sha" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item label="健康检查 URL" name="health_url" extra="返回 2xx/3xx 即算健康，可与 marker 同时使用。">
+                  <Input placeholder="http://127.0.0.1:8080/healthz" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Space wrap>
+              <Button type="primary" htmlType="submit" loading={applying} icon={<Plus size={16} />}>
+                生成任务
+              </Button>
+              <Text type="secondary">生成后会出现在下方任务配置表，可继续编辑变量。</Text>
+            </Space>
+          </Form>
+        </Col>
+      </Row>
     </ProCard>
   );
 }
@@ -2292,6 +2528,7 @@ function SetupConfigPanel({ onReload, initialSection = "guide" }: { onReload: ()
   const [setup, setSetup] = useState<SetupConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [doctorRunning, setDoctorRunning] = useState(false);
   const focusTitle = initialSection === "hosts" ? "环境与机器" : initialSection === "logs" ? "日志策略" : "接入向导";
 
   async function loadSetup(options: { notify?: boolean } = {}) {
@@ -2331,6 +2568,19 @@ function SetupConfigPanel({ onReload, initialSection = "guide" }: { onReload: ()
     }
   }
 
+  async function runDoctor() {
+    setDoctorRunning(true);
+    try {
+      const doctor = await api<SetupConfigResponse["doctor"]>("/api/doctor/run", { method: "POST" });
+      setSetup((previous) => previous ? { ...previous, doctor } : previous);
+      message.success(doctor?.readiness === "blocked" ? "体检完成，有阻断项需要处理" : "体检完成");
+    } catch (error) {
+      message.error(errorText(error) || "体检失败");
+    } finally {
+      setDoctorRunning(false);
+    }
+  }
+
   return (
     <Space direction="vertical" size={16} className="side-stack">
       <Alert
@@ -2339,7 +2589,13 @@ function SetupConfigPanel({ onReload, initialSection = "guide" }: { onReload: ()
         message={`${focusTitle}配置`}
         description="URL、监控主机、外部入口和日志策略会回显；token、密码和告警 webhook 只显示是否已配置，留空保存会保留原值。"
       />
-      <SetupGuidePanel setup={setup} loading={loading} onRefresh={() => loadSetup({ notify: true })} />
+      <SetupGuidePanel
+        setup={setup}
+        loading={loading}
+        doctorRunning={doctorRunning}
+        onRefresh={() => loadSetup({ notify: true })}
+        onDoctorRun={runDoctor}
+      />
       <Form form={form} layout="vertical" onFinish={save} disabled={loading}>
         {initialSection === "guide" && (
         <ProCard title="核心服务" className="setup-form-card">
@@ -2699,12 +2955,19 @@ function TaskConfigView({
           { title: "执行仓库", render: (_, row) => row.repo_name || `Repo ${row.repo_id}` },
           { title: "分支", dataIndex: "branch" },
           {
-            title: "变量",
+            title: "配置摘要",
             render: (_, row) => (
-              <Space wrap size={[4, 4]}>
-                {Object.entries(row.variables || {}).map(([key, value]) => (
-                  <Tag key={key}>{key}={value || "-"}</Tag>
-                ))}
+              <Space direction="vertical" size={4} className="table-cell-stack">
+                <Space wrap size={[4, 4]}>
+                  {taskVariableSummaryTags(row).map((item) => (
+                    <Tag key={item}>{item}</Tag>
+                  ))}
+                </Space>
+                {isDeploymentLikeTask(row) && (
+                  <Text type={taskHasVerification(row) ? "secondary" : "danger"}>
+                    {taskHasVerification(row) ? "已配置 marker/healthz 验证" : "缺少部署验证，不能作为可信入口"}
+                  </Text>
+                )}
               </Space>
             )
           },
@@ -3352,6 +3615,44 @@ function isDeploymentLikeTask(task: Task): boolean {
   const action = String(task.variables?.DEPLOY_ACTION || "").toLowerCase();
   if (["deploy", "site", "observability", "publish", "release", "zefire", "zephyr", "peapod"].includes(action)) return true;
   return /部署|发布|deploy|publish|release/i.test(task.title);
+}
+
+function taskHasVerification(task: Task): boolean {
+  const variables = task.variables || {};
+  return Boolean(
+    variables.PEAPOD_DEPLOY_MARKER_PATH ||
+      variables.PEAPOD_DEPLOY_VERIFY_URL ||
+      variables.PEAPOD_HEALTH_URL ||
+      variables.ZEPHYR_DEPLOY_MARKER_PATH ||
+      variables.ZEPHYR_DEPLOY_VERIFY_URL ||
+      variables.ZEPHYR_HEALTH_URL ||
+      variables.DEPLOY_MARKER_PATH ||
+      variables.DEPLOY_HEALTH_URL ||
+      variables.HEALTH_URL
+  );
+}
+
+function taskVariableSummaryTags(task: Task): string[] {
+  const variables = task.variables || {};
+  const keys = [
+    "DEPLOY_ACTION",
+    "PEAPOD_PROJECT_ENV",
+    "PEAPOD_PROJECT_ID",
+    "PEAPOD_PROJECT_NAME",
+    "DEPLOY_STRATEGY",
+    "CLEANUP_MODE"
+  ];
+  const tags = keys
+    .filter((key) => variables[key])
+    .map((key) => `${key}=${shortPipelineVariableValue(variables[key] || "-")}`);
+  if (!tags.length) {
+    const fallback = Object.entries(variables)
+      .filter(([key]) => !isSensitiveVariable(key))
+      .slice(0, 3)
+      .map(([key, value]) => `${key}=${shortPipelineVariableValue(value || "-")}`);
+    return fallback.length ? fallback : ["未配置变量"];
+  }
+  return tags;
 }
 
 function mobileDeploymentActions(
