@@ -353,19 +353,11 @@ export function DeployPage({
     }
   }, [objects, selectedID]);
   const filteredObjects = useMemo(() => filterDeployObjects(objects, query), [objects, query]);
-  const verifiedCount = rows.filter((row) => row.deploy_verified).length;
-  const attentionCount = objects.filter((item) => item.attention).length;
-  const runningCount = objects.filter((item) => item.pipelines.some((row) => ["running", "pending"].includes(row.status))).length;
   return (
     <Space direction="vertical" size={16} className="side-stack">
       <PageIntro
         title="部署"
         description="按项目和环境管理部署、回退与流水线，适合一个仓库部署到多台机器。"
-        stats={[
-          { label: "运行/排队", value: String(runningCount), tone: runningCount ? "warning" : "success" },
-          { label: "需关注", value: String(attentionCount), tone: attentionCount ? "danger" : "success" },
-          { label: "已验证", value: `${verifiedCount}/${rows.length || 0}`, tone: verifiedCount === rows.length && rows.length ? "success" : "normal" }
-        ]}
         actions={
           <Space className="deploy-intro-actions" wrap>
             <Button icon={<RefreshCw size={16} />} loading={refreshing} onClick={onRefresh}>刷新</Button>
@@ -643,34 +635,27 @@ function DeployObjectDetailView({
         <Text type="secondary">/</Text>
         <Text strong>{item.title}</Text>
       </div>
-      <div className="deploy-object-detail-layout">
-        <aside className="deploy-object-detail-sidebar">
-          <Card size="small" className="deploy-build-card" title="构建历史">
-            <DeployBuildHistory rows={item.pipelines.slice(0, 12)} nowMs={nowMs} onInspect={onInspect} />
-          </Card>
-        </aside>
-        <main className="deploy-object-detail-main">
-          <div className="deploy-object-detail-head">
-            <div className="deploy-object-detail-title">
-              <Space size={8} wrap>
-                <DeployObjectHealthMark item={item} />
-                <Tag color={item.kind === "deployment" ? "blue" : riskColors[item.risk] || "default"}>{item.kind === "deployment" ? "部署对象" : "维护动作"}</Tag>
-                <Tag color={item.statusColor}>{item.statusLabel}</Tag>
-                {latest && <Tag color={statusColors[latest.status] || "default"}>#{latest.number} {statusText(latest.status)}</Tag>}
-              </Space>
-              <Title level={3}>{item.title}</Title>
-              <Text type="secondary">{item.subtitle}</Text>
-              <div className="deploy-object-detail-meta">
-                <Tag>{item.environmentLabel}</Tag>
-                <Tag color="blue">{item.branchLabel}</Tag>
-              </div>
+      <main className="deploy-object-detail-main">
+        <div className="deploy-object-detail-head">
+          <div className="deploy-object-detail-title">
+            <Space size={8} wrap>
+              <DeployObjectHealthMark item={item} />
+              <Tag color={item.kind === "deployment" ? "blue" : riskColors[item.risk] || "default"}>{item.kind === "deployment" ? "部署对象" : "维护动作"}</Tag>
+              {item.attention && <Tag color={item.risk === "danger" ? "red" : "gold"}>需处理</Tag>}
+              {latest && <Tag color={statusColors[latest.status] || "default"}>#{latest.number} {statusText(latest.status)}</Tag>}
+            </Space>
+            <Title level={3}>{item.title}</Title>
+            <Text type="secondary">{item.subtitle}</Text>
+            <div className="deploy-object-detail-meta">
+              <Tag>{item.environmentLabel}</Tag>
+              <Tag color="blue">{item.branchLabel}</Tag>
             </div>
-            <DeployObjectRowActions item={item} woodpecker={woodpecker} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} onRun={onRun} />
           </div>
-          <DeployObjectStatusStrip item={item} state={state} nowMs={nowMs} />
-          <DeployObjectExpandedPanel item={item} state={state} woodpecker={woodpecker} nowMs={nowMs} compact onCancel={onCancel} onInspect={onInspect} />
-        </main>
-      </div>
+          <DeployObjectRowActions item={item} woodpecker={woodpecker} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} onRun={onRun} />
+        </div>
+        <DeployObjectStatusStrip item={item} state={state} nowMs={nowMs} />
+        <DeployObjectExpandedPanel item={item} state={state} woodpecker={woodpecker} nowMs={nowMs} compact onCancel={onCancel} onInspect={onInspect} />
+      </main>
     </div>
   );
 }
@@ -716,37 +701,15 @@ function DeployObjectPipelineOverview({ row, nowMs }: { row?: Pipeline; nowMs: n
   );
 }
 
-function DeployBuildHistory({ rows, nowMs, onInspect }: { rows: Pipeline[]; nowMs: number; onInspect: (row: Pipeline) => void }) {
-  if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无构建" />;
-  return (
-    <div className="deploy-build-list">
-      {rows.map((row) => (
-        <button type="button" className="deploy-build-row" key={`${row.repo_id}-${row.number}`} onClick={() => onInspect(row)}>
-          <DeployPipelineStatusDot status={row.status} />
-          <span className="deploy-build-main">
-            <Text strong ellipsis={{ tooltip: `#${row.number}-${row.branch || "-"}` }}>#{row.number}-{row.branch || "-"}</Text>
-            <Text type="secondary">{pipelineDurationText(row, nowMs)}</Text>
-          </span>
-          <Text type="secondary">{pipelineTimeText(row).replace(/^完成 |^开始 |^创建 /, "")}</Text>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function DeployPipelineStatusDot({ status }: { status: string }) {
-  const tone = status === "success" ? "success" : ["failure", "error", "killed"].includes(status) ? "failure" : ["running", "pending"].includes(status) ? "running" : "unknown";
-  return <span className={`deploy-pipeline-dot deploy-pipeline-dot-${tone}`} />;
-}
-
 function DeployObjectStatusStrip({ item, state, nowMs }: { item: DeployObject; state: StateResponse; nowMs: number }) {
   const latest = item.pipelines[0];
-  const latestText = latest ? `#${latest.number} · ${statusText(latest.status)} · ${pipelineDurationText(latest, nowMs)}` : "暂无流水线";
+  const latestText = latest ? `#${latest.number} · ${statusText(latest.status)} · ${latest.branch || "-"} · ${(latest.commit || "").slice(0, 8) || "-"}` : "暂无流水线";
+  const branchText = item.deployment?.configured_branch || item.primaryTask?.branch || "main";
   return (
     <div className="deploy-object-status-strip">
       <DeployObjectMetric label={item.kind === "deployment" ? "线上版本" : "默认仓库"} value={item.deployment ? deploymentVersionText(item.deployment, nowMs) : item.primaryTask ? repoName(state, item.primaryTask) : "-"} accent />
-      <DeployObjectMetric label="最近流水线" value={latestText} />
-      <DeployObjectMetric label="触发来源" value={latest ? pipelineTriggerText(latest) : "暂无记录"} />
+      <DeployObjectMetric label="最近尝试" value={latestText} />
+      <DeployObjectMetric label="默认分支" value={branchText} />
     </div>
   );
 }

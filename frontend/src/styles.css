@@ -751,74 +751,6 @@ body {
   padding: 0;
 }
 
-.deploy-object-detail-layout {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  min-width: 0;
-}
-
-.deploy-object-detail-sidebar {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-}
-
-.deploy-build-card .ant-card-body {
-  padding: 8px !important;
-}
-
-.deploy-build-list {
-  display: grid;
-  gap: 4px;
-}
-
-.deploy-build-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  padding: 8px 6px;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.deploy-build-row:hover {
-  background: #f7fbf4;
-}
-
-.deploy-build-main {
-  display: grid;
-  min-width: 0;
-}
-
-.deploy-pipeline-dot {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  border: 2px solid #9ca3af;
-  border-radius: 999px;
-}
-
-.deploy-pipeline-dot-success {
-  border-color: #15b65d;
-}
-
-.deploy-pipeline-dot-failure {
-  border-color: #ef4444;
-}
-
-.deploy-pipeline-dot-running {
-  border-color: #d89b00;
-}
-
 .deploy-object-detail-main {
   display: grid;
   gap: 14px;
@@ -1826,19 +1758,6 @@ body {
 
   .deploy-object-index-card {
     display: none;
-  }
-
-  .deploy-object-detail-layout {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .deploy-object-detail-sidebar {
-    order: 2;
-  }
-
-  .deploy-object-detail-main {
-    order: 1;
   }
 
   .deploy-object-detail-head {
