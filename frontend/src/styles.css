@@ -302,6 +302,21 @@ body {
   padding: 0 2px;
 }
 
+.log-source-host-head .ant-space {
+  min-width: 0;
+}
+
+.log-source-host-head .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-source-host-head .ant-btn {
+  flex: 0 0 auto;
+}
+
 .log-source-items {
   display: grid;
   gap: 6px;

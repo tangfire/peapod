@@ -1812,7 +1812,7 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
       {degradedReason && <Alert type="warning" showIcon message="日志能力已降级" description={degradedReason} />}
 
       <Row gutter={[16, 16]} className="log-workspace">
-        <Col xs={24} lg={6} xl={5}>
+        <Col xs={24} lg={7} xl={6}>
           <ProCard
             className="log-source-card"
             title={<Space size={8}><Server size={16} />服务</Space>}
@@ -1874,7 +1874,7 @@ export function LogsPage({ state, nowMs }: { state: StateResponse; nowMs: number
             </div>
           </ProCard>
         </Col>
-        <Col xs={24} lg={18} xl={19}>
+        <Col xs={24} lg={17} xl={18}>
           <ProCard
             className="log-console-card"
             title={
