@@ -16,13 +16,13 @@ docker compose up -d --build
 - MySQL：成员账号、审计记录和接入配置。
 - Woodpecker：CI/CD 和部署执行。
 - Beszel：机器资源、磁盘、容器状态和趋势曲线。
-- Dozzle：查看 Docker 当前仍保留的容器日志，并实时跟随新日志，不额外落地集中日志库。
+- Dozzle：查看 Docker 当前仍保留的容器日志，并通过只读 MCP 给 Peapod 提供多容器日志汇总。
 
 特点：
 
 - 常驻资源占用低。
 - 不需要业务机运行日志采集 agent。
-- 适合临时排障、上线前检查、部署失败后看近期容器日志。
+- 适合临时排障、上线前检查、部署失败后在 Peapod 里看近期容器日志。
 - 缺点是没有独立长期日志库；可看多久取决于 Docker 日志驱动、轮转配置和容器是否还在，也没有完整指标/链路告警。
 
 默认入口：
@@ -72,7 +72,7 @@ docker compose --profile observability up -d --build
 
 ## 安全和资源注意
 
-- Dozzle 挂载 Docker socket，只绑定 `127.0.0.1` 端口，并通过外层反代/登录保护暴露。
+- Dozzle 挂载 Docker socket，只绑定 `127.0.0.1` 端口，并通过外层反代/登录保护暴露；`DOZZLE_ENABLE_MCP=true` 仅开放只读工具，`DOZZLE_ENABLE_ACTIONS=false` 和 `DOZZLE_ENABLE_SHELL=false` 保持关闭。
 - Woodpecker agent 也会使用 Docker socket，继续保持 `WOODPECKER_MAX_WORKFLOWS=1`，避免小机器多个项目同时构建。
 - 无论轻量还是完整方案，都要限制 Docker json-file 日志大小；默认 compose 已设置 `DOCKER_LOG_MAX_SIZE` 和 `DOCKER_LOG_MAX_FILE`。
 - 完整观测方案的历史数据不建议无限保留，迁移机器时优先迁配置，不迁旧日志。

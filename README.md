@@ -53,7 +53,8 @@ The intended daily flow is UI-first:
 2. `Settings -> 仓库与任务`: lookup/save Woodpecker repos, then create deployment tasks from templates.
 3. `Deploy`: run deploy/rollback from project status, not from raw pipeline variables.
 4. `Monitoring`: check host pressure and core containers.
-5. `Pipelines`: diagnose failures and jump to Woodpecker only when needed.
+5. `Logs`: search recent Docker-retained logs from multiple containers through Dozzle MCP.
+6. `Pipelines`: diagnose failures and jump to Woodpecker only when needed.
 
 ## Lowest-Cost Setup Path
 
@@ -62,7 +63,7 @@ For a small team or a fresh server, start with the lightweight mode:
 - One operations machine runs Peapod, MySQL, Woodpecker, Beszel, and Dozzle.
 - Business machines do not run Peapod. They only need Docker, a monitor SSH key, and optionally a Beszel agent.
 - Deployment tasks are created from Peapod templates; users should not edit `tasks.json` for normal onboarding.
-- Logs start with Dozzle and Docker log rotation. Enable Grafana/Loki only when searchable cross-machine history is actually needed.
+- Logs start with Dozzle MCP and Docker log rotation. Peapod can aggregate recent logs from selected containers, while Grafana/Loki remains the option for searchable cross-machine history.
 
 To prepare a business machine, copy the command from `Settings -> 接入向导 -> 业务机接入命令`. It uses `scripts/managed-host.sh` to create a low-privilege monitor user, install the Peapod monitor public key, and optionally install Docker.
 
@@ -228,11 +229,11 @@ After that, daily operations should happen inside Peapod:
 
 - trigger deployments and rollbacks
 - inspect running and failed pipelines
-- read failure summaries and tail logs
+- read failure summaries and recent container logs
 - check host CPU, memory, disk, containers
 - open Woodpecker/Beszel/Dozzle/Grafana only for deeper details
 
-For small machines, keep the default lightweight profile first. It uses Beszel for resource curves and Dozzle for Docker-retained container logs plus live tailing. Enable the `observability` profile only when you need searchable log history across hosts, metrics retention, traces, or Grafana alerts. Peapod's setup page shows the active log strategy and Docker log rotation values, defaulting to `DOCKER_LOG_MAX_SIZE=20m` and `DOCKER_LOG_MAX_FILE=3`.
+For small machines, keep the default lightweight profile first. It uses Beszel for resource curves and Dozzle MCP for Docker-retained container logs plus live tailing. Enable the `observability` profile only when you need searchable log history across hosts, metrics retention, traces, or Grafana alerts. Peapod's setup page shows the active log strategy, Dozzle MCP status, and Docker log rotation values, defaulting to `DOCKER_LOG_MAX_SIZE=20m` and `DOCKER_LOG_MAX_FILE=3`.
 
 ## Boundary
 

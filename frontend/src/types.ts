@@ -238,6 +238,7 @@ export type RuntimeConfigInput = {
   beszel_public_url: string;
   beszel_email?: string;
   beszel_password?: string;
+  dozzle_base_url: string;
   dozzle_public_url: string;
   grafana_public_url: string;
   log_strategy: "lightweight" | "observability" | "external";
@@ -283,8 +284,11 @@ export type LogStrategyStatus = {
   mode: "lightweight" | "observability" | "external" | string;
   label: string;
   message: string;
+  dozzle_base_url?: string;
   dozzle_public_url?: string;
   grafana_public_url?: string;
+  dozzle_mcp_ready?: boolean;
+  dozzle_mcp_message?: string;
   docker_log_max_size: string;
   docker_log_max_file: string;
   docker_retention: string;
@@ -355,6 +359,81 @@ export type RunResult = {
 export type TaskConfig = {
   repos?: Record<string, string>;
   tasks: Task[];
+};
+
+export type LogQueryLimits = {
+  max_lines: number;
+  max_containers: number;
+  timeout_seconds: number;
+};
+
+export type LogSummaryResponse = {
+  mode: string;
+  label: string;
+  message: string;
+  source: string;
+  dozzle_public_url?: string;
+  grafana_public_url?: string;
+  dozzle_mcp_ready: boolean;
+  dozzle_mcp_message?: string;
+  docker_log_max_size: string;
+  docker_log_max_file: string;
+  docker_retention: string;
+  container_count: number;
+  host_count: number;
+  limits: LogQueryLimits;
+  checked_at: string;
+  degraded_reason?: string;
+};
+
+export type LogContainer = {
+  id: string;
+  name: string;
+  image?: string;
+  state?: string;
+  health?: string;
+  host: string;
+  host_name?: string;
+  group?: string;
+  created?: string;
+  source: string;
+};
+
+export type LogContainersResponse = {
+  containers: LogContainer[];
+  source: string;
+  checked_at: string;
+  degraded_reason?: string;
+};
+
+export type LogQueryRequest = {
+  hosts: string[];
+  containers: string[];
+  keyword: string;
+  level: string;
+  since_minutes: number;
+  tail: number;
+  stream: string;
+};
+
+export type LogLine = {
+  timestamp?: string;
+  level?: string;
+  stream?: string;
+  type?: string;
+  message: string;
+  host: string;
+  host_name?: string;
+  container_id: string;
+  container_name: string;
+};
+
+export type LogQueryResponse = {
+  lines: LogLine[];
+  source: string;
+  containers: LogContainer[];
+  checked_at: string;
+  degraded_reason?: string;
 };
 
 export type TemplateInput = {

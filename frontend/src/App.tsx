@@ -41,6 +41,7 @@ import {
   DeployErrorContent,
   DeployPage,
   Docs,
+  LogsPage,
   MonitoringView,
   OverviewPage,
   PipelinePage,
@@ -530,6 +531,8 @@ function Shell({ page }: { page: "home" | "docs" }) {
             onRun={openRunTask}
           />
         );
+      case "logs":
+        return <LogsPage state={state} nowMs={nowMs} />;
       case "links":
         return <InfrastructureLinks tasks={state.tasks || []} />;
       case "docs":

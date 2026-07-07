@@ -58,6 +58,7 @@ type Config struct {
 	BeszelPublicURL       string
 	BeszelEmail           string
 	BeszelPassword        string
+	DozzleBaseURL         string
 	DozzlePublicURL       string
 	GrafanaPublicURL      string
 	LogStrategy           string
@@ -85,6 +86,7 @@ type RuntimeConfigFile struct {
 	BeszelPublicURL       string               `json:"beszel_public_url,omitempty"`
 	BeszelEmail           string               `json:"beszel_email,omitempty"`
 	BeszelPassword        string               `json:"beszel_password,omitempty"`
+	DozzleBaseURL         string               `json:"dozzle_base_url,omitempty"`
 	DozzlePublicURL       string               `json:"dozzle_public_url,omitempty"`
 	GrafanaPublicURL      string               `json:"grafana_public_url,omitempty"`
 	LogStrategy           string               `json:"log_strategy,omitempty"`
@@ -108,6 +110,7 @@ type RuntimeConfigInput struct {
 	BeszelPublicURL       string               `json:"beszel_public_url"`
 	BeszelEmail           string               `json:"beszel_email"`
 	BeszelPassword        string               `json:"beszel_password"`
+	DozzleBaseURL         string               `json:"dozzle_base_url"`
 	DozzlePublicURL       string               `json:"dozzle_public_url"`
 	GrafanaPublicURL      string               `json:"grafana_public_url"`
 	LogStrategy           string               `json:"log_strategy"`
@@ -168,8 +171,11 @@ type LogStrategyStatus struct {
 	Mode              string `json:"mode"`
 	Label             string `json:"label"`
 	Message           string `json:"message"`
+	DozzleBaseURL     string `json:"dozzle_base_url,omitempty"`
 	DozzlePublicURL   string `json:"dozzle_public_url,omitempty"`
 	GrafanaPublicURL  string `json:"grafana_public_url,omitempty"`
+	DozzleMCPReady    bool   `json:"dozzle_mcp_ready"`
+	DozzleMCPMessage  string `json:"dozzle_mcp_message,omitempty"`
 	DockerLogMaxSize  string `json:"docker_log_max_size"`
 	DockerLogMaxFile  string `json:"docker_log_max_file"`
 	DockerRetention   string `json:"docker_retention"`
@@ -523,6 +529,9 @@ func main() {
 	mux.HandleFunc("/api/logout", app.apiLogout)
 	mux.HandleFunc("/api/state", app.auth(app.state))
 	mux.HandleFunc("/api/monitoring/summary", app.auth(app.monitoringSummary))
+	mux.HandleFunc("/api/logs/summary", app.auth(app.logsSummary))
+	mux.HandleFunc("/api/logs/containers", app.auth(app.logsContainers))
+	mux.HandleFunc("/api/logs/query", app.auth(app.logsQuery))
 	mux.HandleFunc("/api/users", app.auth(app.users))
 	mux.HandleFunc("/api/users/", app.auth(app.userByID))
 	mux.HandleFunc("/api/me", app.auth(app.me))
@@ -578,6 +587,7 @@ func loadConfig() Config {
 		BeszelPublicURL:       strings.TrimRight(envFirst("http://127.0.0.1:8090", "PEAPOD_BESZEL_PUBLIC_URL", "ZEPHYR_BESZEL_PUBLIC_URL", "ZEFIRE_BESZEL_PUBLIC_URL"), "/"),
 		BeszelEmail:           envFirst("", "PEAPOD_BESZEL_EMAIL", "ZEPHYR_BESZEL_EMAIL", "ZEFIRE_BESZEL_EMAIL"),
 		BeszelPassword:        envFirst("", "PEAPOD_BESZEL_PASSWORD", "ZEPHYR_BESZEL_PASSWORD", "ZEFIRE_BESZEL_PASSWORD"),
+		DozzleBaseURL:         strings.TrimRight(envFirst("http://dozzle:8080", "PEAPOD_DOZZLE_BASE_URL", "ZEPHYR_DOZZLE_BASE_URL", "ZEFIRE_DOZZLE_BASE_URL"), "/"),
 		DozzlePublicURL:       strings.TrimRight(firstNonEmptyString(envFirst("", "PEAPOD_DOZZLE_PUBLIC_URL", "ZEPHYR_DOZZLE_PUBLIC_URL", "ZEFIRE_DOZZLE_PUBLIC_URL"), env("DOZZLE_PUBLIC_URL", "")), "/"),
 		GrafanaPublicURL:      strings.TrimRight(envFirst("", "PEAPOD_GRAFANA_PUBLIC_URL", "ZEPHYR_GRAFANA_PUBLIC_URL", "ZEFIRE_GRAFANA_PUBLIC_URL"), "/"),
 		LogStrategy:           normalizeLogStrategy(envFirst("lightweight", "PEAPOD_LOG_STRATEGY", "ZEPHYR_LOG_STRATEGY", "ZEFIRE_LOG_STRATEGY")),
@@ -657,6 +667,9 @@ func applyRuntimeConfig(cfg *Config, runtime RuntimeConfigFile) {
 	if value := strings.TrimSpace(runtime.BeszelPassword); value != "" {
 		cfg.BeszelPassword = value
 	}
+	if value := cleanURL(runtime.DozzleBaseURL); value != "" {
+		cfg.DozzleBaseURL = value
+	}
 	cfg.GrafanaPublicURL = cleanURL(runtime.GrafanaPublicURL)
 	cfg.DozzlePublicURL = cleanURL(runtime.DozzlePublicURL)
 	if value := normalizeLogStrategy(runtime.LogStrategy); value != "" {
@@ -699,6 +712,7 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 		BeszelBaseURL:         cleanURL(input.BeszelBaseURL),
 		BeszelPublicURL:       cleanURL(input.BeszelPublicURL),
 		BeszelEmail:           strings.TrimSpace(input.BeszelEmail),
+		DozzleBaseURL:         cleanURL(input.DozzleBaseURL),
 		DozzlePublicURL:       cleanURL(input.DozzlePublicURL),
 		GrafanaPublicURL:      cleanURL(input.GrafanaPublicURL),
 		LogStrategy:           normalizeLogStrategy(input.LogStrategy),
@@ -737,6 +751,9 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 	}
 	if cfg.BeszelPublicURL == "" {
 		cfg.BeszelPublicURL = current.BeszelPublicURL
+	}
+	if cfg.DozzleBaseURL == "" {
+		cfg.DozzleBaseURL = current.DozzleBaseURL
 	}
 	if cfg.LogStrategy == "" {
 		cfg.LogStrategy = current.LogStrategy
@@ -1344,6 +1361,7 @@ func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
 				"PEAPOD_PUBLIC_URL":         next.PublicURL,
 				"WOODPECKER_PUBLIC_URL":     next.WoodpeckerPublicURL,
 				"PEAPOD_BESZEL_PUBLIC_URL":  next.BeszelPublicURL,
+				"PEAPOD_DOZZLE_BASE_URL":    next.DozzleBaseURL,
 				"PEAPOD_DOZZLE_PUBLIC_URL":  next.DozzlePublicURL,
 				"PEAPOD_GRAFANA_PUBLIC_URL": next.GrafanaPublicURL,
 				"PEAPOD_LOG_STRATEGY":       next.LogStrategy,
@@ -3296,6 +3314,7 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 		BeszelPublicURL:       a.cfg.BeszelPublicURL,
 		BeszelEmail:           a.cfg.BeszelEmail,
 		BeszelPassword:        "",
+		DozzleBaseURL:         a.cfg.DozzleBaseURL,
 		DozzlePublicURL:       a.cfg.DozzlePublicURL,
 		GrafanaPublicURL:      a.cfg.GrafanaPublicURL,
 		LogStrategy:           normalizeLogStrategy(a.cfg.LogStrategy),
@@ -3510,8 +3529,8 @@ func (a *App) setupStatus(hosts []MonitorHostConfig) []SetupStatusItem {
 		{
 			ID:          "dozzle",
 			Title:       "Dozzle 轻量日志",
-			Status:      setupStatusFromBool(a.cfg.DozzlePublicURL != ""),
-			Message:     fallbackText(a.cfg.DozzlePublicURL, "未配置 Dozzle 入口；轻量模式下建议启用"),
+			Status:      setupStatusFromBool(a.cfg.DozzleBaseURL != "" || a.cfg.DozzlePublicURL != ""),
+			Message:     fallbackText(firstNonEmptyString(a.cfg.DozzlePublicURL, a.cfg.DozzleBaseURL), "未配置 Dozzle；轻量模式下建议启用"),
 			ActionLabel: "打开 Dozzle",
 			ActionURL:   a.cfg.DozzlePublicURL,
 		},
@@ -3571,6 +3590,16 @@ func (a *App) setupChecklist(hosts []MonitorHostConfig, verification DeploymentV
 	})
 	add(a.urlChecklistItem("beszel-url", "Beszel 资源监控", a.cfg.BeszelPublicURL, len(hosts) > 0, "配置 Beszel 公开入口，或保留 SSH 只读兜底。"))
 	add(a.urlChecklistItem("dozzle-url", "Dozzle 轻量日志", a.cfg.DozzlePublicURL, logStrategy.Mode == "lightweight", "轻量日志模式需要配置 Dozzle 入口。"))
+	add(SetupChecklistItem{
+		ID:          "dozzle-mcp",
+		Title:       "Dozzle MCP",
+		Status:      ternaryText(logStrategy.DozzleMCPReady, "ok", ternaryText(logStrategy.Mode == "lightweight", "warning", "optional")),
+		Severity:    ternaryText(logStrategy.DozzleMCPReady, "ok", ternaryText(logStrategy.Mode == "lightweight", "warning", "ok")),
+		Message:     fallbackText(logStrategy.DozzleMCPMessage, "用于 Peapod 内置日志查询的只读接口。"),
+		Fix:         "设置 PEAPOD_DOZZLE_BASE_URL，并给 Dozzle 配置 DOZZLE_ENABLE_MCP=true。",
+		ActionLabel: "打开 Dozzle",
+		ActionURL:   a.cfg.DozzlePublicURL,
+	})
 	add(a.urlChecklistItem("grafana-url", "Grafana / Loki 完整观测", a.cfg.GrafanaPublicURL, logStrategy.Mode == "observability", "完整观测模式需要配置 Grafana 入口。"))
 	publicKeyReady := strings.TrimSpace(readMonitorPublicKey(a.cfg.MonitorSSHKeyPath)) != ""
 	add(SetupChecklistItem{
@@ -3741,6 +3770,7 @@ func (a *App) logStrategyStatus() LogStrategyStatus {
 	maxFile := fallbackText(strings.TrimSpace(a.cfg.DockerLogMaxFile), "3")
 	status := LogStrategyStatus{
 		Mode:              mode,
+		DozzleBaseURL:     a.cfg.DozzleBaseURL,
 		DozzlePublicURL:   a.cfg.DozzlePublicURL,
 		GrafanaPublicURL:  a.cfg.GrafanaPublicURL,
 		DockerLogMaxSize:  maxSize,
@@ -3748,6 +3778,7 @@ func (a *App) logStrategyStatus() LogStrategyStatus {
 		DockerRetention:   fmt.Sprintf("%s × %s", maxSize, maxFile),
 		AlertWebhookReady: strings.TrimSpace(a.cfg.AlertWebhookURL) != "",
 	}
+	status.DozzleMCPReady, status.DozzleMCPMessage = a.probeDozzleMCP(900 * time.Millisecond)
 	switch mode {
 	case "observability":
 		status.Label = "完整观测 Grafana/Loki"
@@ -3840,6 +3871,7 @@ func validateRuntimeConfig(cfg RuntimeConfigFile) error {
 		"Woodpecker PublicURL": cfg.WoodpeckerPublicURL,
 		"Beszel BaseURL":       cfg.BeszelBaseURL,
 		"Beszel PublicURL":     cfg.BeszelPublicURL,
+		"Dozzle BaseURL":       cfg.DozzleBaseURL,
 		"Dozzle PublicURL":     cfg.DozzlePublicURL,
 		"Grafana PublicURL":    cfg.GrafanaPublicURL,
 		"Alert Webhook URL":    cfg.AlertWebhookURL,
