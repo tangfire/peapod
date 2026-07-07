@@ -1,18 +1,30 @@
 when:
   - event: manual
 
-clone:
-  - name: git
-    image: woodpeckerci/plugin-git
-    settings:
-      partial: false
-      depth: 50
-      lfs: false
-      recursive: false
+skip_clone: true
 
 steps:
+  - name: clone
+    image: woodpeckerci/plugin-git
+    commands:
+      - set -euo pipefail
+      - mkdir -p /root/.ssh
+      - cp /run/secrets/github_peapod_deploy_ed25519 /root/.ssh/id_ed25519
+      - chmod 600 /root/.ssh/id_ed25519
+      - ssh-keyscan github.com > /root/.ssh/known_hosts 2>/dev/null
+      - git init .
+      - git remote add origin git@github.com:tangfire/peapod.git
+      - branch="${CI_COMMIT_BRANCH:-main}"
+      - git fetch --depth=50 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+      - git checkout --force "${CI_COMMIT_SHA:-origin/${branch}}"
+      - git submodule update --init --recursive --depth=1 || true
+    volumes:
+      - /opt/peapod/data/secrets/github_peapod_deploy_ed25519:/run/secrets/github_peapod_deploy_ed25519:ro
+
   - name: go-test
     image: golang:1.25-alpine
+    depends_on:
+      - clone
     timeout: 12m
     environment:
       GOPROXY: https://goproxy.cn,direct
