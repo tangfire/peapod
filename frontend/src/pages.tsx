@@ -400,6 +400,8 @@ type DeployObject = {
   kind: "deployment" | "action";
   title: string;
   subtitle: string;
+  environmentLabel: string;
+  branchLabel: string;
   statusLabel: string;
   statusColor: string;
   attention: boolean;
@@ -562,7 +564,7 @@ function DeployObjectListTable({
     },
     {
       title: "名称",
-      width: 300,
+      width: 260,
       sorter: (a, b) => a.title.localeCompare(b.title, "zh-CN"),
       render: (_, row) => (
         <Space direction="vertical" size={1} className="table-cell-stack">
@@ -572,6 +574,16 @@ function DeployObjectListTable({
           <Text type="secondary" ellipsis={{ tooltip: row.subtitle }}>{row.subtitle}</Text>
         </Space>
       )
+    },
+    {
+      title: "环境 / 机器",
+      width: 190,
+      render: (_, row) => <DeployObjectMetaCell value={row.environmentLabel} />
+    },
+    {
+      title: "分支",
+      width: 180,
+      render: (_, row) => <DeployObjectMetaCell value={row.branchLabel} />
     },
     {
       title: "上次成功",
@@ -621,7 +633,7 @@ function DeployObjectListTable({
         options={false}
         tableAlertRender={false}
         pagination={{ pageSize: 14, showSizeChanger: true, pageSizeOptions: [14, 30, 60], showTotal: (total) => `共 ${total} 个对象` }}
-        scroll={{ x: 1190 }}
+        scroll={{ x: 1540 }}
         tableLayout="fixed"
         onRow={(row) => ({ onClick: () => onSelect(row.id) })}
       />
@@ -699,6 +711,10 @@ function DeployObjectDetailView({
               </Space>
               <Title level={3}>{item.title}</Title>
               <Text type="secondary">{item.subtitle}</Text>
+              <div className="deploy-object-detail-meta">
+                <Tag>{item.environmentLabel}</Tag>
+                <Tag color="blue">{item.branchLabel}</Tag>
+              </div>
             </div>
             <DeployObjectRowActions item={item} woodpecker={woodpecker} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} onRun={onRun} />
           </div>
@@ -735,6 +751,10 @@ function deployObjectWeatherText(item: DeployObject): string {
   if (item.risk === "warning") return "需要关注：有运行中、未验证或提醒项";
   if (item.risk === "link") return "外部入口或链接类对象";
   return "健康度正常";
+}
+
+function DeployObjectMetaCell({ value }: { value: string }) {
+  return <Text ellipsis={{ tooltip: value }}>{value || "未标注"}</Text>;
 }
 
 function DeployObjectPrimaryRunButton({ item, currentUser, triggeringTaskIDSet, onRun }: { item: DeployObject; currentUser: User; triggeringTaskIDSet: Set<string>; onRun: (task: Task) => void }) {
@@ -4988,6 +5008,68 @@ function deploymentCommitLine(row: DeploymentStatus): string {
   return `流水线 ${row.current_commit.slice(0, 8)}`;
 }
 
+function deployObjectEnvironmentLabel(row?: DeploymentStatus, task?: Task): string {
+  const variables = { ...(row?.variables || {}), ...(task?.variables || {}) };
+  const explicit = firstVariable(variables, [
+    "PEAPOD_PROJECT_ENV",
+    "ZEPHYR_PROJECT_ENV",
+    "DEPLOY_ENV",
+    "ENVIRONMENT",
+    "APP_ENV",
+    "DEPLOY_TARGET",
+    "TARGET_HOST",
+    "HOST",
+    "MACHINE"
+  ]);
+  const source = [explicit, row?.group, row?.name, task?.group, task?.title, task?.description]
+    .filter(Boolean)
+    .join(" · ");
+  const host = inferDeployHostLabel(source);
+  const env = inferDeployEnvLabel(source);
+  return [env, host].filter(Boolean).join(" / ") || "未标注";
+}
+
+function deployObjectBranchLabel(row?: DeploymentStatus, task?: Task): string {
+  if (row?.current_branch) {
+    const commit = (row.current_commit || "").slice(0, 8);
+    const configured = row.configured_branch && row.configured_branch !== row.current_branch ? `，默认 ${row.configured_branch}` : "";
+    return `线上 ${row.current_branch}${commit ? ` · ${commit}` : ""}${configured}`;
+  }
+  if (row?.latest_branch) {
+    const commit = (row.latest_commit || "").slice(0, 8);
+    return `最近 ${row.latest_branch}${commit ? ` · ${commit}` : ""}`;
+  }
+  const branch = task?.branch || row?.configured_branch || "main";
+  return `默认 ${branch}`;
+}
+
+function firstVariable(variables: Record<string, string>, keys: string[]): string {
+  for (const key of keys) {
+    const value = String(variables[key] || variables[key.toLowerCase()] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function inferDeployEnvLabel(source: string): string {
+  const value = source.toLowerCase();
+  if (/生产|prod|production/.test(value)) return "生产环境";
+  if (/测试|test|staging|stage|dev|develop|development/.test(value)) return "测试环境";
+  if (/构建|builder|build/.test(value)) return "构建环境";
+  if (/观测|monitor|grafana|beszel|dozzle|observability/.test(value)) return "观测环境";
+  return "";
+}
+
+function inferDeployHostLabel(source: string): string {
+  const value = source.toLowerCase();
+  if (/测试\/构建机|构建机|builder|build/.test(value)) return "测试/构建机";
+  if (/生产机|production|prod/.test(value)) return "生产机";
+  if (/e站|e站生产|estar|estack|lehu/.test(value)) return "e站机器";
+  if (/写书猫|novelcat|xzm|context-flow/.test(value)) return "写书猫机器";
+  if (/9router|router/.test(value)) return "9router";
+  return "";
+}
+
 function shortDeploymentVerifyMessage(row: DeploymentStatus): string {
   if (!row.deploy_verify_message) return "";
   if (row.deploy_verified) return "版本和健康检查已通过";
@@ -5020,6 +5102,8 @@ function buildDeployObjects(state: StateResponse, rows: DeploymentStatus[], task
       kind: "deployment" as const,
       title: productText(row.name),
       subtitle: deploymentScopeText(row),
+      environmentLabel: deployObjectEnvironmentLabel(row, actions.deploy || actions.rollback || actionTasks[0]),
+      branchLabel: deployObjectBranchLabel(row, actions.deploy || actions.rollback || actionTasks[0]),
       statusLabel: status,
       statusColor: deployVerifyColor(row),
       attention,
@@ -5055,6 +5139,8 @@ function buildDeployObjects(state: StateResponse, rows: DeploymentStatus[], task
         kind: "action" as const,
         title: productText(task.title),
         subtitle: `${taskGroupLabel(state, task)} · ${repoName(state, task)}`,
+        environmentLabel: deployObjectEnvironmentLabel(undefined, task),
+        branchLabel: deployObjectBranchLabel(undefined, task),
         statusLabel: latest ? statusText(latest.status) : riskLabel(task.risk),
         statusColor: latest ? statusColors[latest.status] || "default" : riskColors[task.risk] || "default",
         attention,

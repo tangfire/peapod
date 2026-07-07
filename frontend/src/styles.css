@@ -937,6 +937,13 @@ body {
   line-height: 1.18 !important;
 }
 
+.deploy-object-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .deploy-object-status-strip {
   display: grid;
   grid-template-columns: minmax(220px, 1.3fr) repeat(3, minmax(150px, 1fr));
