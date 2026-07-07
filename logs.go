@@ -1037,7 +1037,8 @@ func logLineMatchesKeyword(line LogLine, keyword string) bool {
 	if keyword == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(logLineSearchText(line)), keyword)
+	searchText := emptyErrorFieldPattern.ReplaceAllString(logLineSearchText(line), "")
+	return strings.Contains(strings.ToLower(searchText), keyword)
 }
 
 func logLineSearchText(line LogLine) string {

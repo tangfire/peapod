@@ -77,6 +77,11 @@ func TestFilterAndLimitLogLinesUsesNormalizedLevels(t *testing.T) {
 	if len(byHost) != 4 {
 		t.Fatalf("expected keyword to match host names, got %d: %+v", len(byHost), byHost)
 	}
+
+	byErrorKeyword := filterAndLimitLogLines(lines, LogQueryRequest{Keyword: "error", Tail: 100})
+	if len(byErrorKeyword) != 2 {
+		t.Fatalf("expected keyword=error to ignore empty error fields, got %d: %+v", len(byErrorKeyword), byErrorKeyword)
+	}
 }
 
 func TestParseSSHDockerLogsNormalizesPlainText(t *testing.T) {
