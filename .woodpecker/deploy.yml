@@ -11,41 +11,26 @@ clone:
       recursive: false
 
 steps:
-  - name: frontend-build
-    image: node:22-alpine
-    timeout: 12m
-    commands:
-      - set -euo pipefail
-      - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip test/build"; exit 0; fi'
-      - cd frontend
-      - npm ci --prefer-offline --no-audit --no-fund
-      - npm run build
-    volumes:
-      - /opt/woodpecker-cache/zephyr/npm:/root/.npm
-
-  - name: go-test-build
+  - name: go-test
     image: golang:1.25-alpine
     timeout: 12m
     environment:
       GOPROXY: https://goproxy.cn,direct
     commands:
       - set -euo pipefail
-      - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip go test/build"; exit 0; fi'
+      - 'if [ "${DEPLOY_ACTION:-deploy}" != "deploy" ]; then echo "DEPLOY_ACTION=${DEPLOY_ACTION:-deploy}; skip go test"; exit 0; fi'
       - go test ./...
-      - mkdir -p .woodpecker-build
-      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o .woodpecker-build/zephyr .
     volumes:
-      - /opt/woodpecker-cache/zephyr/go/pkg:/go/pkg/mod
-      - /opt/woodpecker-cache/zephyr/go/build:/root/.cache/go-build
+      - /opt/woodpecker-cache/peapod/go/pkg:/go/pkg/mod
+      - /opt/woodpecker-cache/peapod/go/build:/root/.cache/go-build
 
   - name: deploy
     image: docker:28-cli
     depends_on:
-      - frontend-build
-      - go-test-build
+      - go-test
     commands:
       - set -euo pipefail
-      - sh scripts/deploy-zephyr-local.sh
+      - sh scripts/deploy-peapod-docker.sh
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/zephyr:/opt/zephyr
+      - /opt/peapod:/opt/peapod

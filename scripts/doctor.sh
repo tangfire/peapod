@@ -12,7 +12,7 @@ fail() {
 command -v docker >/dev/null 2>&1 || fail "docker is not installed"
 docker compose version >/dev/null 2>&1 || fail "docker compose plugin is not available"
 test -f .env || fail ".env missing; run scripts/bootstrap.sh first"
-test -f data/zephyr/tasks.json || echo "WARN: data/zephyr/tasks.json missing; Peapod will start with only infrastructure links"
+test -f data/peapod/tasks.json || echo "WARN: data/peapod/tasks.json missing; Peapod will start with only infrastructure links"
 
 docker compose config >/dev/null
 

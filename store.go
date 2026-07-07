@@ -77,7 +77,7 @@ func (s *UserStore) Close() error {
 
 func (s *UserStore) migrate(ctx context.Context) error {
 	statements := []string{
-		`CREATE TABLE IF NOT EXISTS zephyr_users (
+		`CREATE TABLE IF NOT EXISTS peapod_users (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			username VARCHAR(64) NOT NULL,
 			display_name VARCHAR(80) NOT NULL DEFAULT '',
@@ -88,11 +88,11 @@ func (s *UserStore) migrate(ctx context.Context) error {
 			last_login_at DATETIME(3) NULL,
 			created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 			updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-			UNIQUE KEY uk_zephyr_users_username (username),
-			KEY idx_zephyr_users_role (role),
-			KEY idx_zephyr_users_active (active)
+			UNIQUE KEY uk_peapod_users_username (username),
+			KEY idx_peapod_users_role (role),
+			KEY idx_peapod_users_active (active)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE IF NOT EXISTS zephyr_deploy_audit_logs (
+		`CREATE TABLE IF NOT EXISTS peapod_deploy_audit_logs (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 			user_id BIGINT NULL,
@@ -106,10 +106,10 @@ func (s *UserStore) migrate(ctx context.Context) error {
 			pipeline_number BIGINT NOT NULL DEFAULT 0,
 			status VARCHAR(32) NOT NULL DEFAULT '',
 			error TEXT NULL,
-			KEY idx_zephyr_audit_created_at (created_at),
-			KEY idx_zephyr_audit_user_id (user_id),
-			KEY idx_zephyr_audit_task_id (task_id),
-			KEY idx_zephyr_audit_status (status)
+			KEY idx_peapod_audit_created_at (created_at),
+			KEY idx_peapod_audit_user_id (user_id),
+			KEY idx_peapod_audit_task_id (task_id),
+			KEY idx_peapod_audit_status (status)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
 	for _, stmt := range statements {
@@ -117,12 +117,68 @@ func (s *UserStore) migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return s.copyLegacyTables(ctx)
+}
+
+func (s *UserStore) copyLegacyTables(ctx context.Context) error {
+	if err := s.copyLegacyUsers(ctx); err != nil {
+		return err
+	}
+	return s.copyLegacyAuditLogs(ctx)
+}
+
+func (s *UserStore) copyLegacyUsers(ctx context.Context) error {
+	legacy, err := s.tableExists(ctx, "zephyr_users")
+	if err != nil || !legacy {
+		return err
+	}
+	count, err := s.tableRowCount(ctx, "peapod_users")
+	if err != nil || count > 0 {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO peapod_users
+		(id, username, display_name, email, password_hash, role, active, last_login_at, created_at, updated_at)
+		SELECT id, username, display_name, email, password_hash, role, active, last_login_at, created_at, updated_at
+		FROM zephyr_users`)
+	return err
+}
+
+func (s *UserStore) copyLegacyAuditLogs(ctx context.Context) error {
+	legacy, err := s.tableExists(ctx, "zephyr_deploy_audit_logs")
+	if err != nil || !legacy {
+		return err
+	}
+	count, err := s.tableRowCount(ctx, "peapod_deploy_audit_logs")
+	if err != nil || count > 0 {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO peapod_deploy_audit_logs
+		(id, created_at, user_id, username, remote_ip, task_id, task_title, repo_id, branch, variables_json, pipeline_number, status, error)
+		SELECT id, created_at, user_id, username, remote_ip, task_id, task_title, repo_id, branch, variables_json, pipeline_number, status, error
+		FROM zephyr_deploy_audit_logs`)
+	return err
+}
+
+func (s *UserStore) tableExists(ctx context.Context, name string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, name).Scan(&count)
+	return count > 0, err
+}
+
+func (s *UserStore) tableRowCount(ctx context.Context, name string) (int, error) {
+	switch name {
+	case "peapod_users", "peapod_deploy_audit_logs":
+	default:
+		return 0, errors.New("unsupported table")
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+name).Scan(&count)
+	return count, err
 }
 
 func (s *UserStore) ensureBootstrapUser(ctx context.Context, cfg Config) error {
 	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM zephyr_users`).Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peapod_users`).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -137,7 +193,7 @@ func (s *UserStore) ensureBootstrapUser(ctx context.Context, cfg Config) error {
 		password = cfg.Password
 	}
 	if password == "" {
-		return errors.New("ZEPHYR_BOOTSTRAP_PASSWORD or ZEPHYR_PASSWORD is required when ZEPHYR_DB_DSN initializes an empty database")
+		return errors.New("PEAPOD_BOOTSTRAP_PASSWORD or PEAPOD_PASSWORD is required when PEAPOD_DB_DSN initializes an empty database")
 	}
 	displayName := strings.TrimSpace(cfg.BootstrapDisplayName)
 	if displayName == "" {
@@ -147,7 +203,7 @@ func (s *UserStore) ensureBootstrapUser(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO zephyr_users (username, display_name, email, password_hash, role, active) VALUES (?, ?, ?, ?, 'admin', 1)`,
+	_, err = s.db.ExecContext(ctx, `INSERT INTO peapod_users (username, display_name, email, password_hash, role, active) VALUES (?, ?, ?, ?, 'admin', 1)`,
 		username, displayName, strings.TrimSpace(cfg.BootstrapEmail), hash)
 	return err
 }
@@ -167,13 +223,13 @@ func (s *UserStore) Authenticate(ctx context.Context, login, password string) (A
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		return AuthUser{}, errors.New("用户名或密码不正确")
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE zephyr_users SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = ?`, user.ID)
+	_, _ = s.db.ExecContext(ctx, `UPDATE peapod_users SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = ?`, user.ID)
 	return user, nil
 }
 
 func (s *UserStore) GetUser(ctx context.Context, id int64) (AuthUser, error) {
 	var user AuthUser
-	err := s.db.QueryRowContext(ctx, `SELECT id, username, display_name, email, role, active FROM zephyr_users WHERE id = ?`, id).
+	err := s.db.QueryRowContext(ctx, `SELECT id, username, display_name, email, role, active FROM peapod_users WHERE id = ?`, id).
 		Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role, &user.Active)
 	if err != nil {
 		return AuthUser{}, err
@@ -182,7 +238,7 @@ func (s *UserStore) GetUser(ctx context.Context, id int64) (AuthUser, error) {
 }
 
 func (s *UserStore) ListUsers(ctx context.Context) ([]AuthUser, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, email, role, active FROM zephyr_users ORDER BY active DESC, id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, email, role, active FROM peapod_users ORDER BY active DESC, id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +281,7 @@ func (s *UserStore) CreateUser(ctx context.Context, input UserInput) (AuthUser, 
 	if input.Active != nil {
 		active = *input.Active
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO zephyr_users (username, display_name, email, password_hash, role, active) VALUES (?, ?, ?, ?, ?, ?)`,
+	res, err := s.db.ExecContext(ctx, `INSERT INTO peapod_users (username, display_name, email, password_hash, role, active) VALUES (?, ?, ?, ?, ?, ?)`,
 		username, strings.TrimSpace(input.DisplayName), email, hash, role, boolToInt(active))
 	if err != nil {
 		return AuthUser{}, err
@@ -262,7 +318,7 @@ func (s *UserStore) UpdateUser(ctx context.Context, id int64, input UserInput) (
 	if input.Active != nil {
 		active = *input.Active
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE zephyr_users SET username = ?, display_name = ?, email = ?, role = ?, active = ? WHERE id = ?`,
+	_, err = s.db.ExecContext(ctx, `UPDATE peapod_users SET username = ?, display_name = ?, email = ?, role = ?, active = ? WHERE id = ?`,
 		username, displayName, email, role, boolToInt(active), id)
 	if err != nil {
 		return AuthUser{}, err
@@ -281,13 +337,13 @@ func (s *UserStore) SetPassword(ctx context.Context, id int64, password string) 
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE zephyr_users SET password_hash = ? WHERE id = ?`, hash, id)
+	_, err = s.db.ExecContext(ctx, `UPDATE peapod_users SET password_hash = ? WHERE id = ?`, hash, id)
 	return err
 }
 
 func (s *UserStore) VerifyPassword(ctx context.Context, id int64, password string) error {
 	var hash string
-	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM zephyr_users WHERE id = ? AND active = 1`, id).Scan(&hash)
+	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM peapod_users WHERE id = ? AND active = 1`, id).Scan(&hash)
 	if err != nil {
 		return errors.New("账号不存在或已停用")
 	}
@@ -299,7 +355,7 @@ func (s *UserStore) VerifyPassword(ctx context.Context, id int64, password strin
 
 func (s *UserStore) WriteAudit(ctx context.Context, record AuditRecord) error {
 	payload, _ := json.Marshal(record.Variables)
-	_, err := s.db.ExecContext(ctx, `INSERT INTO zephyr_deploy_audit_logs
+	_, err := s.db.ExecContext(ctx, `INSERT INTO peapod_deploy_audit_logs
 		(user_id, username, remote_ip, task_id, task_title, repo_id, branch, variables_json, pipeline_number, status, error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nullableUserID(record.UserID), record.Username, record.RemoteIP, record.TaskID, record.TaskTitle, record.RepoID, record.Branch, string(payload), record.Pipeline, record.Status, nullableString(record.Error))
@@ -311,7 +367,7 @@ func (s *UserStore) ListAudit(ctx context.Context, limit int) ([]AuditRecord, er
 		limit = 80
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT created_at, user_id, username, remote_ip, task_id, task_title, repo_id, branch, variables_json, pipeline_number, status, COALESCE(error, '')
-		FROM zephyr_deploy_audit_logs
+		FROM peapod_deploy_audit_logs
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?`, limit)
 	if err != nil {
@@ -342,7 +398,7 @@ func (s *UserStore) getUserWithHash(ctx context.Context, login string) (AuthUser
 	var user AuthUser
 	var hash string
 	err := s.db.QueryRowContext(ctx, `SELECT id, username, display_name, email, role, active, password_hash
-		FROM zephyr_users
+		FROM peapod_users
 		WHERE username = ? OR LOWER(email) = ?
 		ORDER BY CASE WHEN username = ? THEN 0 ELSE 1 END
 		LIMIT 1`, login, login, login).
@@ -358,7 +414,7 @@ func (s *UserStore) emailExists(ctx context.Context, email string, excludeID int
 		return false, nil
 	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM zephyr_users WHERE LOWER(email) = ? AND id <> ?`, email, excludeID).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peapod_users WHERE LOWER(email) = ? AND id <> ?`, email, excludeID).Scan(&count)
 	return count > 0, err
 }
 

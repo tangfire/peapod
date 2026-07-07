@@ -9,7 +9,7 @@ Peapod quick start
 
 2. Configure:
    .env
-   data/zephyr/tasks.json
+   data/peapod/tasks.json
 
 3. Start:
    docker compose up -d --build
@@ -24,6 +24,6 @@ Peapod quick start
    - copy this repository
    - run scripts/bootstrap.sh
    - edit .env public URLs and secrets
-   - add host config to ZEPHYR_MONITOR_HOSTS_JSON
+   - add host config to PEAPOD_MONITOR_HOSTS_JSON
    - add deploy tasks in Peapod Settings
 EOF

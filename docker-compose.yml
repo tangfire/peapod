@@ -1,4 +1,4 @@
-name: zephyr
+name: peapod
 
 x-default-logging: &default-logging
   driver: json-file
@@ -7,18 +7,18 @@ x-default-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-3}"
 
 services:
-  zephyr:
+  peapod:
     build: .
-    image: ${ZEPHYR_IMAGE:-zephyr:latest}
-    container_name: ${ZEPHYR_CONTAINER_NAME:-zephyr}
+    image: ${PEAPOD_IMAGE:-peapod:latest}
+    container_name: ${PEAPOD_CONTAINER_NAME:-peapod}
     restart: unless-stopped
     logging: *default-logging
     env_file:
       - .env
     ports:
-      - "${ZEPHYR_BIND:-127.0.0.1}:${ZEPHYR_PORT:-8095}:8095"
+      - "${PEAPOD_BIND:-127.0.0.1}:${PEAPOD_PORT:-8095}:8095"
     volumes:
-      - ./data/zephyr:/data
+      - ./data/peapod:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -30,21 +30,21 @@ services:
         condition: service_started
 
   mysql:
-    image: ${ZEPHYR_MYSQL_IMAGE:-mysql:8.4}
-    container_name: ${ZEPHYR_MYSQL_CONTAINER_NAME:-zephyr-mysql}
+    image: ${PEAPOD_MYSQL_IMAGE:-mysql:8.4}
+    container_name: ${PEAPOD_MYSQL_CONTAINER_NAME:-peapod-mysql}
     restart: unless-stopped
     logging: *default-logging
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_DATABASE: ${ZEPHYR_DB_NAME:-zephyr}
-      MYSQL_USER: ${ZEPHYR_DB_USER:-zephyr}
-      MYSQL_PASSWORD: ${ZEPHYR_DB_PASSWORD:-change-me}
-      MYSQL_ROOT_PASSWORD: ${ZEPHYR_DB_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${PEAPOD_DB_NAME:-peapod}
+      MYSQL_USER: ${PEAPOD_DB_USER:-peapod}
+      MYSQL_PASSWORD: ${PEAPOD_DB_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${PEAPOD_DB_ROOT_PASSWORD:-change-me-root}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${ZEPHYR_MYSQL_BIND:-127.0.0.1}:${ZEPHYR_MYSQL_PORT:-13307}:3306"
+      - "${PEAPOD_MYSQL_BIND:-127.0.0.1}:${PEAPOD_MYSQL_PORT:-13307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:

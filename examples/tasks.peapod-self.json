@@ -14,15 +14,15 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "status",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod"
       }
     },
     {
       "id": "peapod-restart",
       "group": "Peapod",
       "title": "重启 Peapod",
-      "description": "只重启 Peapod host service，不改数据库和配置。",
+      "description": "只重启 Peapod Compose 服务，不改数据库和配置。",
       "repo_id": 9,
       "repo_name": "your-org/peapod",
       "branch": "main",
@@ -30,15 +30,15 @@
       "confirm_text": "RESTART",
       "variables": {
         "DEPLOY_ACTION": "restart",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod"
       }
     },
     {
       "id": "peapod-deploy",
       "group": "Peapod",
       "title": "部署 Peapod",
-      "description": "运行 Peapod 测试、构建前端和 Go 二进制，然后替换运行版本并重启。",
+      "description": "运行 Peapod 测试、构建 Docker 镜像、更新 Compose 服务并校验健康检查。",
       "repo_id": 9,
       "repo_name": "your-org/peapod",
       "branch": "main",
@@ -46,8 +46,10 @@
       "confirm_text": "PEAPOD",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/peapod/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8095/healthz"
       }
     }
   ]

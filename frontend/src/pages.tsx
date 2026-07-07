@@ -50,7 +50,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { ApiError, api, errorText } from "./api";
-import { LEGACY_PRODUCT_REPO_NAME, PRODUCT_NAME, PRODUCT_REPO_NAME, PRODUCT_REPO_OWNER } from "./brand";
+import { PRODUCT_NAME, PRODUCT_REPO_NAME, PRODUCT_REPO_OWNER } from "./brand";
 import type {
   AuditRecord,
   DeploymentVerificationSummary,
@@ -105,8 +105,6 @@ export function peapodNavItems() {
     { key: "settings", icon: <Settings size={16} />, label: "设置" }
   ];
 }
-
-export const zephyrNavItems = peapodNavItems;
 
 function PageIntro({
   title,
@@ -2112,10 +2110,9 @@ function RepositoryConfigPanel({ state, onReload }: { state: StateResponse; onRe
   ];
 
   const productRepoFullName = `${PRODUCT_REPO_OWNER}/${PRODUCT_REPO_NAME}`.toLowerCase();
-  const legacyRepoFullName = `${PRODUCT_REPO_OWNER}/${LEGACY_PRODUCT_REPO_NAME}`.toLowerCase();
   const productRepoEnabled = repos.some((repo) => {
     const fullName = (repo.full_name || "").toLowerCase();
-    return fullName === productRepoFullName || fullName === legacyRepoFullName;
+    return fullName === productRepoFullName;
   });
 
   return (
@@ -2734,11 +2731,11 @@ function TaskConfigView({
 
 export function Docs({ state, compact = false }: { state: StateResponse; compact?: boolean }) {
   const data = [
-    ["部署任务", "Woodpecker Repo ID / 默认分支", "DEPLOY_ACTION=deploy，建议设置 ZEPHYR_PROJECT_ID、ZEPHYR_DEPLOY_MARKER_PATH、ZEPHYR_DEPLOY_VERIFY_URL"],
+    ["部署任务", "Woodpecker Repo ID / 默认分支", "DEPLOY_ACTION=deploy，建议设置 PEAPOD_PROJECT_ID、PEAPOD_DEPLOY_MARKER_PATH、PEAPOD_DEPLOY_VERIFY_URL"],
     ["回退任务", "同一 Repo / 同一项目 ID", "DEPLOY_ACTION=rollback，确认词建议 ROLLBACK"],
     ["清理任务", "按项目自定义", "DEPLOY_ACTION=cleanup 或 disk-cleanup，确认词建议 CLEAN"],
-    ["基础设施入口", "ZEPHYR_LINKS_JSON", "配置额外外部系统入口"],
-    ["监控主机", "ZEPHYR_MONITOR_HOSTS_JSON", "配置机器、容器、Beszel 名称和 SSH 兜底"]
+    ["基础设施入口", "PEAPOD_LINKS_JSON", "配置额外外部系统入口"],
+    ["监控主机", "PEAPOD_MONITOR_HOSTS_JSON", "配置机器、容器、Beszel 名称和 SSH 兜底"]
   ];
   return (
     <Space direction="vertical" size={16} className="side-stack">
@@ -2802,7 +2799,8 @@ function pipelineAttentionKeys(row: Pipeline): string[] {
   const repo = row.repo_id || 0;
   const variables = row.variables || {};
   const keys = [
-    row.zefire_task_id ? `${repo}:task:${row.zefire_task_id}` : "",
+    row.peapod_task_id ? `${repo}:task:${row.peapod_task_id}` : "",
+    variables.PEAPOD_PROJECT_ID ? `${repo}:project:${variables.PEAPOD_PROJECT_ID}` : "",
     variables.ZEPHYR_PROJECT_ID ? `${repo}:project:${variables.ZEPHYR_PROJECT_ID}` : "",
     variables.DEPLOY_ACTION ? `${repo}:action:${variables.DEPLOY_ACTION}:${variables.DEPLOY_TARGET || ""}:${variables.SOURCE_BRANCH || row.branch || ""}` : "",
     `${repo}:text:${pipelineTaskText(row)}:${row.branch || ""}`
@@ -2941,7 +2939,7 @@ export function branchOptionsForRepo(state: StateResponse, repoID: number, confi
 }
 
 function pipelineTaskText(row: Pipeline): string {
-  if (row.zefire_task_title) return productText(row.zefire_task_title);
+  if (row.peapod_task_title) return productText(row.peapod_task_title);
   const variables = row.variables || {};
   const action = variables.DEPLOY_ACTION || variables.deploy_action || "";
   const target = variables.DEPLOY_TARGET || variables.deploy_target || "";
@@ -2997,12 +2995,12 @@ function isSensitiveVariable(key: string): boolean {
 }
 
 function pipelineTriggerText(row: Pipeline): string {
-  if (!row.zefire_triggered_by) {
+  if (!row.peapod_triggered_by) {
     const actor = row.author || row.sender || "";
     if (row.event === "push") return actor ? `Git push：${actor}` : "Git push";
     return actor ? `Woodpecker：${actor}` : "外部触发/未记录";
   }
-  return [PRODUCT_NAME + "：" + row.zefire_triggered_by, formatShortTime(row.zefire_triggered_at)]
+  return [PRODUCT_NAME + "：" + row.peapod_triggered_by, formatShortTime(row.peapod_triggered_at)]
     .filter(Boolean)
     .join(" · ");
 }
@@ -3321,7 +3319,7 @@ function preferredDeployTask(tasks: Task[]): Task | undefined {
 
 function taskProjectKey(task: Task): string {
   const variables = task.variables || {};
-  const id = variables.ZEPHYR_PROJECT_ID || variables.PROJECT_ID || variables.SERVICE_ID || variables.DEPLOY_SERVICE || variables.APP || variables.PROJECT || task.group || task.id;
+  const id = variables.PEAPOD_PROJECT_ID || variables.ZEPHYR_PROJECT_ID || variables.PROJECT_ID || variables.SERVICE_ID || variables.DEPLOY_SERVICE || variables.APP || variables.PROJECT || task.group || task.id;
   return `repo-${task.repo_id}:${normalizeKey(id)}`;
 }
 

@@ -17,8 +17,8 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "xzm-product",
-        "ZEPHYR_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_ID": "xzm-product",
+        "PEAPOD_PROJECT_NAME": "写书猫产品"
       }
     },
     {
@@ -34,8 +34,8 @@
       "variables": {
         "DEPLOY_ACTION": "deploy",
         "FORCE_DEPLOY": "1",
-        "ZEPHYR_PROJECT_ID": "xzm-product",
-        "ZEPHYR_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_ID": "xzm-product",
+        "PEAPOD_PROJECT_NAME": "写书猫产品"
       }
     },
     {
@@ -50,8 +50,8 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_ACTION": "rollback",
-        "ZEPHYR_PROJECT_ID": "xzm-product",
-        "ZEPHYR_PROJECT_NAME": "写书猫产品"
+        "PEAPOD_PROJECT_ID": "xzm-product",
+        "PEAPOD_PROJECT_NAME": "写书猫产品"
       }
     },
     {
@@ -65,8 +65,8 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "site",
-        "ZEPHYR_PROJECT_ID": "xzm-site",
-        "ZEPHYR_PROJECT_NAME": "写书猫官网"
+        "PEAPOD_PROJECT_ID": "xzm-site",
+        "PEAPOD_PROJECT_NAME": "写书猫官网"
       }
     },
     {
@@ -81,8 +81,8 @@
       "confirm_text": "OBS",
       "variables": {
         "DEPLOY_ACTION": "observability",
-        "ZEPHYR_PROJECT_ID": "xzm-observability",
-        "ZEPHYR_PROJECT_NAME": "观测平台"
+        "PEAPOD_PROJECT_ID": "xzm-observability",
+        "PEAPOD_PROJECT_NAME": "观测平台"
       }
     },
     {
@@ -96,8 +96,8 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "status",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod"
       }
     },
     {
@@ -112,8 +112,8 @@
       "confirm_text": "RESTART",
       "variables": {
         "DEPLOY_ACTION": "restart",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod"
       }
     },
     {
@@ -128,8 +128,8 @@
       "confirm_text": "PEAPOD",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "peapod",
-        "ZEPHYR_PROJECT_NAME": "Peapod"
+        "PEAPOD_PROJECT_ID": "peapod",
+        "PEAPOD_PROJECT_NAME": "Peapod"
       }
     },
     {
@@ -178,8 +178,8 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "estack",
-        "ZEPHYR_PROJECT_NAME": "e站后端"
+        "PEAPOD_PROJECT_ID": "estack",
+        "PEAPOD_PROJECT_NAME": "e站后端"
       }
     },
     {
@@ -194,8 +194,8 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_ACTION": "rollback",
-        "ZEPHYR_PROJECT_ID": "estack",
-        "ZEPHYR_PROJECT_NAME": "e站后端"
+        "PEAPOD_PROJECT_ID": "estack",
+        "PEAPOD_PROJECT_NAME": "e站后端"
       }
     },
     {
@@ -210,8 +210,8 @@
       "confirm_text": "RESTART",
       "variables": {
         "DEPLOY_ACTION": "restart",
-        "ZEPHYR_PROJECT_ID": "estack",
-        "ZEPHYR_PROJECT_NAME": "e站后端"
+        "PEAPOD_PROJECT_ID": "estack",
+        "PEAPOD_PROJECT_NAME": "e站后端"
       }
     },
     {
@@ -243,8 +243,8 @@
       "confirm_text": "ROUTER",
       "variables": {
         "DEPLOY_TARGET": "builder",
-        "ZEPHYR_PROJECT_ID": "router-builder",
-        "ZEPHYR_PROJECT_NAME": "测试/构建机 9router"
+        "PEAPOD_PROJECT_ID": "router-builder",
+        "PEAPOD_PROJECT_NAME": "测试/构建机 9router"
       }
     },
     {
@@ -259,8 +259,8 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_TARGET": "builder",
-        "ZEPHYR_PROJECT_ID": "router-builder",
-        "ZEPHYR_PROJECT_NAME": "测试/构建机 9router"
+        "PEAPOD_PROJECT_ID": "router-builder",
+        "PEAPOD_PROJECT_NAME": "测试/构建机 9router"
       },
       "inputs": [
         {
@@ -283,8 +283,8 @@
       "confirm_text": "PROD",
       "variables": {
         "DEPLOY_TARGET": "production",
-        "ZEPHYR_PROJECT_ID": "router-production",
-        "ZEPHYR_PROJECT_NAME": "生产机 9router"
+        "PEAPOD_PROJECT_ID": "router-production",
+        "PEAPOD_PROJECT_NAME": "生产机 9router"
       }
     },
     {
@@ -299,8 +299,8 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_TARGET": "production",
-        "ZEPHYR_PROJECT_ID": "router-production",
-        "ZEPHYR_PROJECT_NAME": "生产机 9router"
+        "PEAPOD_PROJECT_ID": "router-production",
+        "PEAPOD_PROJECT_NAME": "生产机 9router"
       },
       "inputs": [
         {

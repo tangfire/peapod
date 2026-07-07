@@ -55,16 +55,16 @@ func TestMatchBeszelHostDoesNotUseGenericBuilderAlias(t *testing.T) {
 		{
 			ID:          "ops-test-builder",
 			Name:        "测试/构建机",
-			BeszelNames: []string{"zephyr-ops-builder", "zephyr", "111.230.32.26"},
+			BeszelNames: []string{"peapod-ops-builder", "peapod", "111.230.32.26"},
 		},
 	}}
 
 	cfg, ok := service.matchBeszelHost(map[string]any{
-		"name": "zephyr-ops-builder",
+		"name": "peapod-ops-builder",
 		"host": "111.230.32.26",
 	})
 	if !ok {
-		t.Fatal("expected zephyr host to match")
+		t.Fatal("expected peapod host to match")
 	}
 	if cfg.ID != "ops-test-builder" {
 		t.Fatalf("matched host = %q, want ops-test-builder", cfg.ID)

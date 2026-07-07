@@ -342,10 +342,10 @@ function Shell({ page }: { page: "home" | "docs" }) {
         started: pipeline.started || 0,
         finished: pipeline.finished || 0,
         variables,
-        zefire_triggered_by: previous.current_user.username,
-        zefire_triggered_at: triggeredAt || new Date().toISOString(),
-        zefire_task_id: task.id,
-        zefire_task_title: task.title
+        peapod_triggered_by: previous.current_user.username,
+        peapod_triggered_at: triggeredAt || new Date().toISOString(),
+        peapod_task_id: task.id,
+        peapod_task_title: task.title
       };
       const repoPipelines = previous.pipelines?.[repoKey] || [];
       const nextRepoPipelines = [optimistic, ...repoPipelines.filter((item) => item.number !== optimistic.number)];
@@ -781,7 +781,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
             </Col>
           </Row>
           <Form.Item label="Woodpecker 变量" name="variables" rules={[{ required: true, message: "请输入变量" }]}>
-            <Input.TextArea rows={6} placeholder={"DEPLOY_ACTION=deploy\nZEPHYR_PROJECT_ID=my-service\nZEPHYR_PROJECT_NAME=我的服务"} />
+            <Input.TextArea rows={6} placeholder={"DEPLOY_ACTION=deploy\nPEAPOD_PROJECT_ID=my-service\nPEAPOD_PROJECT_NAME=我的服务"} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
             保存任务配置
@@ -838,24 +838,24 @@ function LoadingShell({ error, onRetry }: { error?: string; onRetry?: () => void
 }
 
 function deploymentMarkerPath(values: Record<string, string>): string {
-  return values.ZEPHYR_DEPLOY_MARKER_PATH || values.DEPLOY_MARKER_PATH || "";
+  return values.PEAPOD_DEPLOY_MARKER_PATH || values.ZEPHYR_DEPLOY_MARKER_PATH || values.DEPLOY_MARKER_PATH || "";
 }
 
 function deploymentVerifyURL(values: Record<string, string>): string {
-  return values.ZEPHYR_DEPLOY_VERIFY_URL || values.ZEPHYR_HEALTH_URL || values.DEPLOY_HEALTH_URL || values.HEALTH_URL || "";
+  return values.PEAPOD_DEPLOY_VERIFY_URL || values.PEAPOD_HEALTH_URL || values.ZEPHYR_DEPLOY_VERIFY_URL || values.ZEPHYR_HEALTH_URL || values.DEPLOY_HEALTH_URL || values.HEALTH_URL || "";
 }
 
 function withDeploymentVerificationVariables(values: Record<string, string>, markerPath: string, verifyURL: string): Record<string, string> {
   const next = { ...values };
-  for (const key of ["ZEPHYR_DEPLOY_MARKER_PATH", "DEPLOY_MARKER_PATH"]) {
+  for (const key of ["PEAPOD_DEPLOY_MARKER_PATH", "ZEPHYR_DEPLOY_MARKER_PATH", "DEPLOY_MARKER_PATH"]) {
     delete next[key];
   }
-  for (const key of ["ZEPHYR_DEPLOY_VERIFY_URL", "ZEPHYR_HEALTH_URL", "DEPLOY_HEALTH_URL", "HEALTH_URL"]) {
+  for (const key of ["PEAPOD_DEPLOY_VERIFY_URL", "PEAPOD_HEALTH_URL", "ZEPHYR_DEPLOY_VERIFY_URL", "ZEPHYR_HEALTH_URL", "DEPLOY_HEALTH_URL", "HEALTH_URL"]) {
     delete next[key];
   }
   const marker = markerPath.trim();
   const health = verifyURL.trim();
-  if (marker) next.ZEPHYR_DEPLOY_MARKER_PATH = marker;
-  if (health) next.ZEPHYR_DEPLOY_VERIFY_URL = health;
+  if (marker) next.PEAPOD_DEPLOY_MARKER_PATH = marker;
+  if (health) next.PEAPOD_DEPLOY_VERIFY_URL = health;
   return next;
 }

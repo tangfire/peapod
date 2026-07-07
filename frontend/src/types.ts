@@ -45,10 +45,10 @@ export type Pipeline = {
   variables?: Record<string, string>;
   repo_id?: number;
   repo_name?: string;
-  zefire_triggered_by?: string;
-  zefire_triggered_at?: string;
-  zefire_task_id?: string;
-  zefire_task_title?: string;
+  peapod_triggered_by?: string;
+  peapod_triggered_at?: string;
+  peapod_task_id?: string;
+  peapod_task_title?: string;
 };
 
 export type PipelineStep = {

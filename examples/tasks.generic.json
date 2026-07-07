@@ -14,8 +14,10 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "app",
-        "ZEPHYR_PROJECT_NAME": "业务服务"
+        "PEAPOD_PROJECT_ID": "app",
+        "PEAPOD_PROJECT_NAME": "业务服务",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/app/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8080/healthz"
       }
     },
     {
@@ -30,8 +32,10 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_ACTION": "rollback",
-        "ZEPHYR_PROJECT_ID": "app",
-        "ZEPHYR_PROJECT_NAME": "业务服务"
+        "PEAPOD_PROJECT_ID": "app",
+        "PEAPOD_PROJECT_NAME": "业务服务",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/app/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8080/healthz"
       }
     }
   ]

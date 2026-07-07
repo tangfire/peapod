@@ -1,5 +1,3 @@
-import { PRODUCT_NAME } from "./brand";
-
 type PeapodLogoProps = {
   className?: string;
   title?: string;
@@ -15,8 +13,4 @@ export function PeapodLogo({ className = "", title }: PeapodLogoProps) {
       draggable={false}
     />
   );
-}
-
-export function ZephyrLogo(props: PeapodLogoProps) {
-  return <PeapodLogo title={PRODUCT_NAME} {...props} />;
 }

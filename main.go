@@ -24,7 +24,7 @@ import (
 	"time"
 )
 
-const cookieName = "zephyr_session"
+const cookieName = "peapod_session"
 const productName = "Peapod"
 
 type authUserContextKey struct{}
@@ -229,10 +229,10 @@ type Pipeline struct {
 	Updated           int64             `json:"updated,omitempty"`
 	Message           string            `json:"message"`
 	Variables         map[string]string `json:"variables,omitempty"`
-	ZefireTriggeredBy string            `json:"zefire_triggered_by,omitempty"`
-	ZefireTriggeredAt string            `json:"zefire_triggered_at,omitempty"`
-	ZefireTaskID      string            `json:"zefire_task_id,omitempty"`
-	ZefireTaskTitle   string            `json:"zefire_task_title,omitempty"`
+	PeapodTriggeredBy string            `json:"peapod_triggered_by,omitempty"`
+	PeapodTriggeredAt string            `json:"peapod_triggered_at,omitempty"`
+	PeapodTaskID      string            `json:"peapod_task_id,omitempty"`
+	PeapodTaskTitle   string            `json:"peapod_task_title,omitempty"`
 }
 
 type PipelineStep struct {
@@ -444,7 +444,6 @@ func main() {
 	mux.HandleFunc("/login", app.login)
 	mux.HandleFunc("/logout", app.logout)
 	mux.HandleFunc("/peapod-logo.svg", app.frontendStatic("peapod-logo.svg"))
-	mux.HandleFunc("/zephyr-logo.svg", app.frontendStatic("zephyr-logo.svg"))
 	mux.Handle("/assets/", app.frontendAssets())
 	mux.HandleFunc("/api/login", app.apiLogin)
 	mux.HandleFunc("/api/logout", app.apiLogout)
@@ -465,7 +464,7 @@ func main() {
 	mux.HandleFunc("/api/audit", app.auth(app.audit))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","service":"zephyr"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","service":"peapod"}`))
 	})
 	server := &http.Server{
 		Addr:              cfg.Addr,
@@ -485,39 +484,39 @@ type App struct {
 
 func loadConfig() Config {
 	cfg := Config{
-		Addr:                  envCompat("ZEPHYR_ADDR", "ZEFIRE_ADDR", ":8095"),
-		ConfigPath:            envCompat("ZEPHYR_CONFIG_PATH", "ZEFIRE_CONFIG_PATH", "/data/config.json"),
-		PublicURL:             strings.TrimRight(envCompat("ZEPHYR_PUBLIC_URL", "ZEFIRE_PUBLIC_URL", "http://127.0.0.1:8095"), "/"),
-		Password:              envCompat("ZEPHYR_PASSWORD", "ZEFIRE_PASSWORD", ""),
-		SessionSecret:         envCompat("ZEPHYR_SESSION_SECRET", "ZEFIRE_SESSION_SECRET", ""),
-		DBDSN:                 envCompat("ZEPHYR_DB_DSN", "ZEFIRE_DB_DSN", ""),
-		BootstrapUsername:     envCompat("ZEPHYR_BOOTSTRAP_USERNAME", "ZEFIRE_BOOTSTRAP_USERNAME", "admin"),
-		BootstrapPassword:     envCompat("ZEPHYR_BOOTSTRAP_PASSWORD", "ZEFIRE_BOOTSTRAP_PASSWORD", ""),
-		BootstrapDisplayName:  envCompat("ZEPHYR_BOOTSTRAP_DISPLAY_NAME", "ZEFIRE_BOOTSTRAP_DISPLAY_NAME", "管理员"),
-		BootstrapEmail:        envCompat("ZEPHYR_BOOTSTRAP_EMAIL", "ZEFIRE_BOOTSTRAP_EMAIL", ""),
+		Addr:                  envFirst(":8095", "PEAPOD_ADDR", "ZEPHYR_ADDR", "ZEFIRE_ADDR"),
+		ConfigPath:            envFirst("/data/config.json", "PEAPOD_CONFIG_PATH", "ZEPHYR_CONFIG_PATH", "ZEFIRE_CONFIG_PATH"),
+		PublicURL:             strings.TrimRight(envFirst("http://127.0.0.1:8095", "PEAPOD_PUBLIC_URL", "ZEPHYR_PUBLIC_URL", "ZEFIRE_PUBLIC_URL"), "/"),
+		Password:              envFirst("", "PEAPOD_PASSWORD", "ZEPHYR_PASSWORD", "ZEFIRE_PASSWORD"),
+		SessionSecret:         envFirst("", "PEAPOD_SESSION_SECRET", "ZEPHYR_SESSION_SECRET", "ZEFIRE_SESSION_SECRET"),
+		DBDSN:                 envFirst("", "PEAPOD_DB_DSN", "ZEPHYR_DB_DSN", "ZEFIRE_DB_DSN"),
+		BootstrapUsername:     envFirst("admin", "PEAPOD_BOOTSTRAP_USERNAME", "ZEPHYR_BOOTSTRAP_USERNAME", "ZEFIRE_BOOTSTRAP_USERNAME"),
+		BootstrapPassword:     envFirst("", "PEAPOD_BOOTSTRAP_PASSWORD", "ZEPHYR_BOOTSTRAP_PASSWORD", "ZEFIRE_BOOTSTRAP_PASSWORD"),
+		BootstrapDisplayName:  envFirst("管理员", "PEAPOD_BOOTSTRAP_DISPLAY_NAME", "ZEPHYR_BOOTSTRAP_DISPLAY_NAME", "ZEFIRE_BOOTSTRAP_DISPLAY_NAME"),
+		BootstrapEmail:        envFirst("", "PEAPOD_BOOTSTRAP_EMAIL", "ZEPHYR_BOOTSTRAP_EMAIL", "ZEFIRE_BOOTSTRAP_EMAIL"),
 		WoodpeckerServer:      strings.TrimRight(env("WOODPECKER_SERVER", "http://127.0.0.1:8000"), "/"),
 		WoodpeckerPublicURL:   strings.TrimRight(env("WOODPECKER_PUBLIC_URL", env("WOODPECKER_SERVER", "http://127.0.0.1:8000")), "/"),
 		WoodpeckerToken:       env("WOODPECKER_TOKEN", ""),
-		BeszelBaseURL:         strings.TrimRight(envCompat("ZEPHYR_BESZEL_BASE_URL", "ZEFIRE_BESZEL_BASE_URL", "http://beszel:8090"), "/"),
-		BeszelPublicURL:       strings.TrimRight(envCompat("ZEPHYR_BESZEL_PUBLIC_URL", "ZEFIRE_BESZEL_PUBLIC_URL", "http://127.0.0.1:8090"), "/"),
-		BeszelEmail:           envCompat("ZEPHYR_BESZEL_EMAIL", "ZEFIRE_BESZEL_EMAIL", ""),
-		BeszelPassword:        envCompat("ZEPHYR_BESZEL_PASSWORD", "ZEFIRE_BESZEL_PASSWORD", ""),
-		DozzlePublicURL:       strings.TrimRight(firstNonEmptyString(envCompat("ZEPHYR_DOZZLE_PUBLIC_URL", "ZEFIRE_DOZZLE_PUBLIC_URL", ""), env("DOZZLE_PUBLIC_URL", "")), "/"),
-		GrafanaPublicURL:      strings.TrimRight(envCompat("ZEPHYR_GRAFANA_PUBLIC_URL", "ZEFIRE_GRAFANA_PUBLIC_URL", ""), "/"),
-		LogStrategy:           normalizeLogStrategy(envCompat("ZEPHYR_LOG_STRATEGY", "ZEFIRE_LOG_STRATEGY", "lightweight")),
+		BeszelBaseURL:         strings.TrimRight(envFirst("http://beszel:8090", "PEAPOD_BESZEL_BASE_URL", "ZEPHYR_BESZEL_BASE_URL", "ZEFIRE_BESZEL_BASE_URL"), "/"),
+		BeszelPublicURL:       strings.TrimRight(envFirst("http://127.0.0.1:8090", "PEAPOD_BESZEL_PUBLIC_URL", "ZEPHYR_BESZEL_PUBLIC_URL", "ZEFIRE_BESZEL_PUBLIC_URL"), "/"),
+		BeszelEmail:           envFirst("", "PEAPOD_BESZEL_EMAIL", "ZEPHYR_BESZEL_EMAIL", "ZEFIRE_BESZEL_EMAIL"),
+		BeszelPassword:        envFirst("", "PEAPOD_BESZEL_PASSWORD", "ZEPHYR_BESZEL_PASSWORD", "ZEFIRE_BESZEL_PASSWORD"),
+		DozzlePublicURL:       strings.TrimRight(firstNonEmptyString(envFirst("", "PEAPOD_DOZZLE_PUBLIC_URL", "ZEPHYR_DOZZLE_PUBLIC_URL", "ZEFIRE_DOZZLE_PUBLIC_URL"), env("DOZZLE_PUBLIC_URL", "")), "/"),
+		GrafanaPublicURL:      strings.TrimRight(envFirst("", "PEAPOD_GRAFANA_PUBLIC_URL", "ZEPHYR_GRAFANA_PUBLIC_URL", "ZEFIRE_GRAFANA_PUBLIC_URL"), "/"),
+		LogStrategy:           normalizeLogStrategy(envFirst("lightweight", "PEAPOD_LOG_STRATEGY", "ZEPHYR_LOG_STRATEGY", "ZEFIRE_LOG_STRATEGY")),
 		DockerLogMaxSize:      fallbackText(env("DOCKER_LOG_MAX_SIZE", ""), "20m"),
 		DockerLogMaxFile:      fallbackText(env("DOCKER_LOG_MAX_FILE", ""), "3"),
-		AlertWebhookURL:       envCompat("ZEPHYR_ALERT_WEBHOOK_URL", "ZEFIRE_ALERT_WEBHOOK_URL", ""),
-		ExternalLinksJSON:     envCompat("ZEPHYR_LINKS_JSON", "ZEFIRE_LINKS_JSON", ""),
-		MonitorHostsJSON:      envCompat("ZEPHYR_MONITOR_HOSTS_JSON", "ZEFIRE_MONITOR_HOSTS_JSON", ""),
-		MonitorSSHKeyPath:     envCompat("ZEPHYR_MONITOR_SSH_KEY_PATH", "ZEFIRE_MONITOR_SSH_KEY_PATH", "/data/ssh/monitor_ed25519"),
-		MonitorRefreshSeconds: envIntCompat("ZEPHYR_MONITOR_REFRESH_SECONDS", "ZEFIRE_MONITOR_REFRESH_SECONDS", 20),
-		MonitorWarnDisk:       envIntCompat("ZEPHYR_MONITOR_WARN_DISK", "ZEFIRE_MONITOR_WARN_DISK", 80),
-		MonitorCritDisk:       envIntCompat("ZEPHYR_MONITOR_CRIT_DISK", "ZEFIRE_MONITOR_CRIT_DISK", 90),
-		MonitorWarnMemory:     envIntCompat("ZEPHYR_MONITOR_WARN_MEMORY", "ZEFIRE_MONITOR_WARN_MEMORY", 80),
-		AuditPath:             envCompat("ZEPHYR_AUDIT_PATH", "ZEFIRE_AUDIT_PATH", "/data/audit.jsonl"),
-		TasksPath:             envCompat("ZEPHYR_TASKS_PATH", "ZEFIRE_TASKS_PATH", "/data/tasks.json"),
-		FrontendDir:           envCompat("ZEPHYR_FRONTEND_DIR", "ZEFIRE_FRONTEND_DIR", "frontend/dist"),
+		AlertWebhookURL:       envFirst("", "PEAPOD_ALERT_WEBHOOK_URL", "ZEPHYR_ALERT_WEBHOOK_URL", "ZEFIRE_ALERT_WEBHOOK_URL"),
+		ExternalLinksJSON:     envFirst("", "PEAPOD_LINKS_JSON", "ZEPHYR_LINKS_JSON", "ZEFIRE_LINKS_JSON"),
+		MonitorHostsJSON:      envFirst("", "PEAPOD_MONITOR_HOSTS_JSON", "ZEPHYR_MONITOR_HOSTS_JSON", "ZEFIRE_MONITOR_HOSTS_JSON"),
+		MonitorSSHKeyPath:     envFirst("/data/ssh/monitor_ed25519", "PEAPOD_MONITOR_SSH_KEY_PATH", "ZEPHYR_MONITOR_SSH_KEY_PATH", "ZEFIRE_MONITOR_SSH_KEY_PATH"),
+		MonitorRefreshSeconds: envIntFirst(20, "PEAPOD_MONITOR_REFRESH_SECONDS", "ZEPHYR_MONITOR_REFRESH_SECONDS", "ZEFIRE_MONITOR_REFRESH_SECONDS"),
+		MonitorWarnDisk:       envIntFirst(80, "PEAPOD_MONITOR_WARN_DISK", "ZEPHYR_MONITOR_WARN_DISK", "ZEFIRE_MONITOR_WARN_DISK"),
+		MonitorCritDisk:       envIntFirst(90, "PEAPOD_MONITOR_CRIT_DISK", "ZEPHYR_MONITOR_CRIT_DISK", "ZEFIRE_MONITOR_CRIT_DISK"),
+		MonitorWarnMemory:     envIntFirst(80, "PEAPOD_MONITOR_WARN_MEMORY", "ZEPHYR_MONITOR_WARN_MEMORY", "ZEFIRE_MONITOR_WARN_MEMORY"),
+		AuditPath:             envFirst("/data/audit.jsonl", "PEAPOD_AUDIT_PATH", "ZEPHYR_AUDIT_PATH", "ZEFIRE_AUDIT_PATH"),
+		TasksPath:             envFirst("/data/tasks.json", "PEAPOD_TASKS_PATH", "ZEPHYR_TASKS_PATH", "ZEFIRE_TASKS_PATH"),
+		FrontendDir:           envFirst("frontend/dist", "PEAPOD_FRONTEND_DIR", "ZEPHYR_FRONTEND_DIR", "ZEFIRE_FRONTEND_DIR"),
 	}
 	if runtimeCfg, err := loadRuntimeConfigFile(cfg.ConfigPath); err == nil {
 		applyRuntimeConfig(&cfg, runtimeCfg)
@@ -544,7 +543,7 @@ func loadRuntimeConfigFile(path string) (RuntimeConfigFile, error) {
 
 func saveRuntimeConfigFile(path string, cfg RuntimeConfigFile) error {
 	if strings.TrimSpace(path) == "" {
-		return errors.New("ZEPHYR_CONFIG_PATH is not configured")
+		return errors.New("PEAPOD_CONFIG_PATH is not configured")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -717,10 +716,10 @@ func mustMarshalString(value any) string {
 
 func (c Config) validate() error {
 	if c.DBDSN == "" && c.Password == "" {
-		return errors.New("ZEPHYR_PASSWORD is required")
+		return errors.New("PEAPOD_PASSWORD is required")
 	}
 	if c.SessionSecret == "" {
-		return errors.New("ZEPHYR_SESSION_SECRET is required")
+		return errors.New("PEAPOD_SESSION_SECRET is required")
 	}
 	return nil
 }
@@ -732,20 +731,24 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-func envCompat(primary string, legacy string, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(primary)); value != "" {
-		return value
-	}
-	return env(legacy, fallback)
-}
-
-func envIntCompat(primary string, legacy string, fallback int) int {
-	if value := strings.TrimSpace(os.Getenv(primary)); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			return parsed
+func envFirst(fallback string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
 		}
 	}
-	return envInt(legacy, fallback)
+	return fallback
+}
+
+func envIntFirst(fallback int, keys ...string) int {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if parsed, err := strconv.Atoi(value); err == nil {
+				return parsed
+			}
+		}
+	}
+	return fallback
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -1261,12 +1264,12 @@ func (a *App) setupConfig(w http.ResponseWriter, r *http.Request) {
 			TaskID:    "setup-config",
 			TaskTitle: "保存接入配置",
 			Variables: map[string]string{
-				"ZEPHYR_PUBLIC_URL":         next.PublicURL,
+				"PEAPOD_PUBLIC_URL":         next.PublicURL,
 				"WOODPECKER_PUBLIC_URL":     next.WoodpeckerPublicURL,
-				"ZEPHYR_BESZEL_PUBLIC_URL":  next.BeszelPublicURL,
-				"ZEPHYR_DOZZLE_PUBLIC_URL":  next.DozzlePublicURL,
-				"ZEPHYR_GRAFANA_PUBLIC_URL": next.GrafanaPublicURL,
-				"ZEPHYR_LOG_STRATEGY":       next.LogStrategy,
+				"PEAPOD_BESZEL_PUBLIC_URL":  next.BeszelPublicURL,
+				"PEAPOD_DOZZLE_PUBLIC_URL":  next.DozzlePublicURL,
+				"PEAPOD_GRAFANA_PUBLIC_URL": next.GrafanaPublicURL,
+				"PEAPOD_LOG_STRATEGY":       next.LogStrategy,
 				"DOCKER_LOG_MAX_SIZE":       next.DockerLogMaxSize,
 				"DOCKER_LOG_MAX_FILE":       next.DockerLogMaxFile,
 			},
@@ -2428,10 +2431,10 @@ func annotatePipelinesWithAudit(pipelines map[int][]Pipeline, records []AuditRec
 			if !ok {
 				continue
 			}
-			rows[index].ZefireTriggeredBy = record.Username
-			rows[index].ZefireTriggeredAt = record.Time
-			rows[index].ZefireTaskID = record.TaskID
-			rows[index].ZefireTaskTitle = record.TaskTitle
+			rows[index].PeapodTriggeredBy = record.Username
+			rows[index].PeapodTriggeredAt = record.Time
+			rows[index].PeapodTaskID = record.TaskID
+			rows[index].PeapodTaskTitle = record.TaskTitle
 		}
 		pipelines[repoID] = rows
 	}
@@ -2603,14 +2606,14 @@ func deploymentStatusFromPipeline(target deploymentTarget, repoID int, repoName 
 		LastDeployedAt:   pipelineFinishedAt(pipeline),
 		Pipeline:         pipeline.Number,
 		TriggeredBy:      pipelineActor(pipeline),
-		TriggeredAt:      pipeline.ZefireTriggeredAt,
+		TriggeredAt:      pipeline.PeapodTriggeredAt,
 		Variables:        sanitizeVariables(pipeline.Variables),
 	}
 }
 
 func deploymentTargetFromPipeline(repoID int, repoName string, pipeline Pipeline, taskByID map[string]Task, tasks []Task) (deploymentTarget, string, bool) {
-	if pipeline.ZefireTaskID != "" {
-		if task, ok := taskByID[pipeline.ZefireTaskID]; ok {
+	if pipeline.PeapodTaskID != "" {
+		if task, ok := taskByID[pipeline.PeapodTaskID]; ok {
 			target, targetOK := deploymentTargetFromTask(task)
 			return target, task.Branch, targetOK
 		}
@@ -2627,7 +2630,7 @@ func deploymentTargetFromPipeline(repoID int, repoName string, pipeline Pipeline
 		return deploymentTarget{}, "", false
 	}
 	task := Task{
-		ID:        fallbackText(pipeline.ZefireTaskID, fmt.Sprintf("repo-%d-pipeline", repoID)),
+		ID:        fallbackText(pipeline.PeapodTaskID, fmt.Sprintf("repo-%d-pipeline", repoID)),
 		Group:     deploymentGroupFromPipeline(repoName, pipeline),
 		Title:     deploymentTitleFromPipeline(repoName, pipeline),
 		RepoID:    repoID,
@@ -2680,7 +2683,7 @@ func deploymentVariableMatchScore(taskVariables map[string]string, pipelineVaria
 
 func isProjectMetadataVariable(key string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(key))
-	return strings.HasPrefix(upper, "ZEPHYR_PROJECT_")
+	return strings.HasPrefix(upper, "PEAPOD_PROJECT_") || strings.HasPrefix(upper, "ZEPHYR_PROJECT_")
 }
 
 func deploymentVariableWeight(key string) int {
@@ -2705,6 +2708,7 @@ func deploymentTargetFromTask(task Task) (deploymentTarget, bool) {
 	groupLabel := meaningfulDeploymentLabel(task.Group)
 	titleLabel := meaningfulDeploymentLabel(task.Title)
 	projectID := firstNonEmpty(
+		variableValue(variables, "PEAPOD_PROJECT_ID"),
 		variableValue(variables, "ZEPHYR_PROJECT_ID"),
 		variableValue(variables, "PROJECT_ID"),
 		variableValue(variables, "SERVICE_ID"),
@@ -2716,6 +2720,7 @@ func deploymentTargetFromTask(task Task) (deploymentTarget, bool) {
 		normalizeTaskID(task.ID),
 	)
 	name := firstNonEmpty(
+		variableValue(variables, "PEAPOD_PROJECT_NAME"),
 		variableValue(variables, "ZEPHYR_PROJECT_NAME"),
 		variableValue(variables, "PROJECT_NAME"),
 		titleLabel,
@@ -2727,7 +2732,10 @@ func deploymentTargetFromTask(task Task) (deploymentTarget, bool) {
 }
 
 func deploymentGroupFromPipeline(repoName string, pipeline Pipeline) string {
-	group := meaningfulDeploymentLabel(variableValue(pipeline.Variables, "ZEPHYR_PROJECT_GROUP"))
+	group := meaningfulDeploymentLabel(firstNonEmptyString(
+		variableValue(pipeline.Variables, "PEAPOD_PROJECT_GROUP"),
+		variableValue(pipeline.Variables, "ZEPHYR_PROJECT_GROUP"),
+	))
 	if group != "" {
 		return group
 	}
@@ -2735,10 +2743,13 @@ func deploymentGroupFromPipeline(repoName string, pipeline Pipeline) string {
 }
 
 func deploymentTitleFromPipeline(repoName string, pipeline Pipeline) string {
-	if title := meaningfulDeploymentLabel(pipeline.ZefireTaskTitle); title != "" {
+	if title := meaningfulDeploymentLabel(pipeline.PeapodTaskTitle); title != "" {
 		return title
 	}
-	name := meaningfulDeploymentLabel(variableValue(pipeline.Variables, "ZEPHYR_PROJECT_NAME"))
+	name := meaningfulDeploymentLabel(firstNonEmptyString(
+		variableValue(pipeline.Variables, "PEAPOD_PROJECT_NAME"),
+		variableValue(pipeline.Variables, "ZEPHYR_PROJECT_NAME"),
+	))
 	if name != "" {
 		return name
 	}
@@ -2764,8 +2775,8 @@ func meaningfulDeploymentLabel(value string) string {
 }
 
 func deploymentActionText(repoID int, repoName string, pipeline Pipeline) string {
-	if pipeline.ZefireTaskTitle != "" {
-		return pipeline.ZefireTaskTitle
+	if pipeline.PeapodTaskTitle != "" {
+		return pipeline.PeapodTaskTitle
 	}
 	variables := pipeline.Variables
 	action := variableValue(variables, "DEPLOY_ACTION")
@@ -2783,7 +2794,7 @@ func isMaintenanceAction(action string) bool {
 	if action == "" {
 		return false
 	}
-	for _, needle := range []string{"cleanup", "clean", "disk", "ps", "logs", "status", "restart", "reload", "inspect", "observability", "zefire", "woodpecker-ui-patch"} {
+	for _, needle := range []string{"cleanup", "clean", "disk", "ps", "logs", "status", "restart", "reload", "inspect", "observability", "peapod", "zefire", "zephyr", "woodpecker-ui-patch"} {
 		if strings.Contains(action, needle) {
 			return true
 		}
@@ -2792,7 +2803,10 @@ func isMaintenanceAction(action string) bool {
 }
 
 func deploymentVerifyConfigFromVariables(values map[string]string) deploymentVerifyConfig {
-	timeoutSeconds := parsePositiveInt(variableValue(values, "ZEPHYR_DEPLOY_VERIFY_TIMEOUT_SECONDS"))
+	timeoutSeconds := parsePositiveInt(firstNonEmptyString(
+		variableValue(values, "PEAPOD_DEPLOY_VERIFY_TIMEOUT_SECONDS"),
+		variableValue(values, "ZEPHYR_DEPLOY_VERIFY_TIMEOUT_SECONDS"),
+	))
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = parsePositiveInt(variableValue(values, "DEPLOY_VERIFY_TIMEOUT_SECONDS"))
 	}
@@ -2804,10 +2818,13 @@ func deploymentVerifyConfigFromVariables(values map[string]string) deploymentVer
 	}
 	return deploymentVerifyConfig{
 		MarkerPath: firstNonEmptyString(
+			variableValue(values, "PEAPOD_DEPLOY_MARKER_PATH"),
 			variableValue(values, "ZEPHYR_DEPLOY_MARKER_PATH"),
 			variableValue(values, "DEPLOY_MARKER_PATH"),
 		),
 		HealthURL: firstNonEmptyString(
+			variableValue(values, "PEAPOD_DEPLOY_VERIFY_URL"),
+			variableValue(values, "PEAPOD_HEALTH_URL"),
 			variableValue(values, "ZEPHYR_DEPLOY_VERIFY_URL"),
 			variableValue(values, "ZEPHYR_HEALTH_URL"),
 			variableValue(values, "DEPLOY_HEALTH_URL"),
@@ -3014,8 +3031,8 @@ func pipelineFinishedAt(pipeline Pipeline) int64 {
 }
 
 func pipelineActor(pipeline Pipeline) string {
-	if pipeline.ZefireTriggeredBy != "" {
-		return pipeline.ZefireTriggeredBy
+	if pipeline.PeapodTriggeredBy != "" {
+		return pipeline.PeapodTriggeredBy
 	}
 	if pipeline.Author != "" {
 		return pipeline.Author
@@ -3123,7 +3140,7 @@ func (a *App) setupConfigResponse(now time.Time) SetupConfigResponse {
 func (a *App) setupStatus(hosts []MonitorHostConfig) []SetupStatusItem {
 	items := []SetupStatusItem{
 		{
-			ID:          "zephyr",
+			ID:          "peapod",
 			Title:       "Peapod 入口",
 			Status:      setupStatusFromBool(a.cfg.PublicURL != ""),
 			Message:     fallbackText(a.cfg.PublicURL, "未配置公开访问地址"),
@@ -3193,7 +3210,7 @@ func (a *App) setupChecklist(hosts []MonitorHostConfig, verification DeploymentV
 		}
 		items = append(items, item)
 	}
-	add(a.urlChecklistItem("peapod-url", "Peapod 公开地址", a.cfg.PublicURL, true, "配置 ZEPHYR_PUBLIC_URL，并确认反向代理可访问。"))
+	add(a.urlChecklistItem("peapod-url", "Peapod 公开地址", a.cfg.PublicURL, true, "配置 PEAPOD_PUBLIC_URL，并确认反向代理可访问。"))
 	add(a.urlChecklistItem("woodpecker-url", "Woodpecker 公开入口", a.cfg.WoodpeckerPublicURL, true, "配置 WOODPECKER_PUBLIC_URL，并确认 ci 域名反代到 Woodpecker。"))
 	add(SetupChecklistItem{
 		ID:          "woodpecker-token",
@@ -3225,7 +3242,7 @@ func (a *App) setupChecklist(hosts []MonitorHostConfig, verification DeploymentV
 		Status:   ternaryText(publicKeyReady, "ok", "warning"),
 		Severity: ternaryText(publicKeyReady, "ok", "warning"),
 		Message:  ternaryText(publicKeyReady, fmt.Sprintf("公钥已准备；已配置 %d 台被管机器。", len(hosts)), "未找到监控公钥；SSH 兜底监控不可用。"),
-		Fix:      "在 ZEPHYR_MONITOR_SSH_KEY_PATH 对应位置放置专用只读 key，并把 .pub 写入被管机器。",
+		Fix:      "在 PEAPOD_MONITOR_SSH_KEY_PATH 对应位置放置专用只读 key，并把 .pub 写入被管机器。",
 	})
 	add(SetupChecklistItem{
 		ID:       "monitor-hosts",
@@ -3249,7 +3266,7 @@ func (a *App) setupChecklist(hosts []MonitorHostConfig, verification DeploymentV
 		Status:   verifyStatus,
 		Severity: verifySeverity,
 		Message:  verifyMessage,
-		Fix:      "给部署/回退/release 任务补充 ZEPHYR_DEPLOY_MARKER_PATH 或 ZEPHYR_DEPLOY_VERIFY_URL。",
+		Fix:      "给部署/回退/release 任务补充 PEAPOD_DEPLOY_MARKER_PATH 或 PEAPOD_DEPLOY_VERIFY_URL。",
 	})
 	add(SetupChecklistItem{
 		ID:          "log-strategy",
@@ -3574,7 +3591,7 @@ func taskRequiresAdmin(task Task) bool {
 	}
 	action := variableValue(task.Variables, "DEPLOY_ACTION")
 	target := variableValue(task.Variables, "DEPLOY_TARGET")
-	if strings.Contains(strings.ToLower(action), "production") || strings.Contains(strings.ToLower(action), "observability") || strings.Contains(strings.ToLower(action), "zephyr") || strings.Contains(strings.ToLower(action), "zefire") || target == "production" || target == "prod" {
+	if strings.Contains(strings.ToLower(action), "production") || strings.Contains(strings.ToLower(action), "observability") || strings.Contains(strings.ToLower(action), "peapod") || strings.Contains(strings.ToLower(action), "zephyr") || strings.Contains(strings.ToLower(action), "zefire") || target == "production" || target == "prod" {
 		return true
 	}
 	return false
@@ -3618,7 +3635,10 @@ func deploymentTaskRequiresVerification(task Task) bool {
 	if isMaintenanceAction(action) {
 		return false
 	}
-	return strings.TrimSpace(variableValue(task.Variables, "ZEPHYR_PROJECT_ID")) != ""
+	return strings.TrimSpace(firstNonEmptyString(
+		variableValue(task.Variables, "PEAPOD_PROJECT_ID"),
+		variableValue(task.Variables, "ZEPHYR_PROJECT_ID"),
+	)) != ""
 }
 
 func taskHasDeploymentVerification(task Task) bool {
@@ -3641,7 +3661,7 @@ func (a *App) configuredLinks() map[string]string {
 			links[key] = value
 		}
 	}
-	addLink("zephyr", a.cfg.PublicURL)
+	addLink("peapod", a.cfg.PublicURL)
 	addLink("woodpecker", a.cfg.WoodpeckerPublicURL)
 	addLink("grafana", a.cfg.GrafanaPublicURL)
 	addLink("beszel", a.cfg.BeszelPublicURL)
@@ -3676,7 +3696,7 @@ func (a *App) externalLinkTasks() []Task {
 			Builtin:     true,
 		})
 	}
-	add("zephyr-open", "打开 Peapod", "回到运维驾驶舱入口。", a.cfg.PublicURL)
+	add("peapod-open", "打开 Peapod", "回到运维驾驶舱入口。", a.cfg.PublicURL)
 	add("woodpecker-open", "打开 Woodpecker", "查看完整流水线、日志和仓库配置。", a.cfg.WoodpeckerPublicURL)
 	add("dozzle-open", "打开 Dozzle", "轻量查看本机 Docker 已保留日志并实时跟随，不落地集中日志库。", a.cfg.DozzlePublicURL)
 	add("grafana-open", "打开 Grafana", "查看日志、指标、链路和仪表盘。", a.cfg.GrafanaPublicURL)
@@ -3714,7 +3734,7 @@ func (a *App) extraExternalLinks() []ExternalLinkConfig {
 	}
 	var values map[string]string
 	if err := json.Unmarshal([]byte(raw), &values); err != nil {
-		log.Printf("parse ZEPHYR_LINKS_JSON failed: %v", err)
+		log.Printf("parse PEAPOD_LINKS_JSON failed: %v", err)
 		return nil
 	}
 	rows = make([]ExternalLinkConfig, 0, len(values))
@@ -3870,7 +3890,7 @@ func (a *App) loadCustomTaskConfig() (CustomTaskConfig, error) {
 
 func (a *App) saveCustomTaskConfig(cfg CustomTaskConfig) error {
 	if a.cfg.TasksPath == "" {
-		return errors.New("ZEPHYR_TASKS_PATH is not configured")
+		return errors.New("PEAPOD_TASKS_PATH is not configured")
 	}
 	if cfg.Repos == nil {
 		cfg.Repos = map[int]string{}
@@ -3963,7 +3983,7 @@ func normalizeTaskConfig(task *Task) error {
 	}
 	task.Variables = cleanVariables
 	if deploymentTaskRequiresVerification(*task) && !taskHasDeploymentVerification(*task) {
-		return errors.New("部署类任务必须配置 ZEPHYR_DEPLOY_MARKER_PATH 或 ZEPHYR_DEPLOY_VERIFY_URL")
+		return errors.New("部署类任务必须配置 PEAPOD_DEPLOY_MARKER_PATH 或 PEAPOD_DEPLOY_VERIFY_URL")
 	}
 	task.ConfirmText = strings.TrimSpace(task.ConfirmText)
 	task.AllowedRoles = normalizeAllowedRoles(task.AllowedRoles)
@@ -4141,7 +4161,7 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
 </head>
 <body class="login-page">
   <main class="login-card">
-    <div class="brand-mark" aria-hidden="true">` + zephyrLogo + `</div>
+    <div class="brand-mark" aria-hidden="true">` + peapodLogo + `</div>
     <h1>Peapod</h1>
     <p>基础设施部署控制台</p>
     {{if .Error}}<div class="error">密码不正确。</div>{{end}}
@@ -4171,7 +4191,7 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
 <body>
   <header class="topbar">
     <div class="brand-lockup">
-      <div class="brand-mark brand-mark-small" aria-hidden="true">` + zephyrLogo + `</div>
+      <div class="brand-mark brand-mark-small" aria-hidden="true">` + peapodLogo + `</div>
       <div>
         <div class="eyebrow">Infrastructure Console</div>
         <h1>Peapod</h1>
@@ -4309,7 +4329,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
 <body>
   <header class="topbar">
     <div class="brand-lockup">
-      <div class="brand-mark brand-mark-small" aria-hidden="true">` + zephyrLogo + `</div>
+      <div class="brand-mark brand-mark-small" aria-hidden="true">` + peapodLogo + `</div>
       <div>
         <div class="eyebrow">Runbook</div>
         <h1>部署文档</h1>
@@ -4326,7 +4346,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
       <div>
         <div class="eyebrow">Woodpecker Parameters</div>
         <h2>通用手动部署参数</h2>
-        <p>Peapod 的部署动作来自 <code>ZEPHYR_TASKS_PATH</code> 指向的任务配置。面板不可用时，可以到 Woodpecker 手动触发同一个仓库、分支和变量。</p>
+        <p>Peapod 的部署动作来自 <code>PEAPOD_TASKS_PATH</code> 指向的任务配置。面板不可用时，可以到 Woodpecker 手动触发同一个仓库、分支和变量。</p>
       </div>
       <a class="button" target="_blank" rel="noreferrer" href="{{.WoodpeckerURL}}">打开 Woodpecker</a>
     </section>
@@ -4334,7 +4354,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
     <section class="docs-grid">
       <article class="doc-card">
         <h2>任务配置</h2>
-        <p>每个任务至少包含 Repo ID、默认分支、变量和风险级别。建议为同一项目的部署和回退设置相同的 <code>ZEPHYR_PROJECT_ID</code>，这样项目状态会自动归并。</p>
+        <p>每个任务至少包含 Repo ID、默认分支、变量和风险级别。建议为同一项目的部署和回退设置相同的 <code>PEAPOD_PROJECT_ID</code>，这样项目状态会自动归并。</p>
         <div class="code-block">{
   "repos": {"1": "your-repo"},
   "tasks": [{
@@ -4346,8 +4366,8 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
     "risk": "normal",
     "variables": {
       "DEPLOY_ACTION": "deploy",
-      "ZEPHYR_PROJECT_ID": "app",
-      "ZEPHYR_PROJECT_NAME": "业务服务"
+      "PEAPOD_PROJECT_ID": "app",
+      "PEAPOD_PROJECT_NAME": "业务服务"
     }
   }]
 }</div>
@@ -4360,16 +4380,16 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
           <thead><tr><th>系统</th><th>用途</th><th>配置</th></tr></thead>
           <tbody>
             <tr><td>Woodpecker</td><td>流水线执行、取消、日志</td><td><code>WOODPECKER_SERVER</code> / <code>WOODPECKER_TOKEN</code></td></tr>
-            <tr><td>Beszel</td><td>机器资源和容器状态</td><td><code>ZEPHYR_BESZEL_*</code></td></tr>
-            <tr><td>Dozzle</td><td>轻量查看 Docker 已保留日志并实时跟随</td><td><code>ZEPHYR_DOZZLE_PUBLIC_URL</code></td></tr>
-            <tr><td>Grafana</td><td>完整历史日志、指标、链路面板</td><td><code>ZEPHYR_GRAFANA_PUBLIC_URL</code></td></tr>
+            <tr><td>Beszel</td><td>机器资源和容器状态</td><td><code>PEAPOD_BESZEL_*</code></td></tr>
+            <tr><td>Dozzle</td><td>轻量查看 Docker 已保留日志并实时跟随</td><td><code>PEAPOD_DOZZLE_PUBLIC_URL</code></td></tr>
+            <tr><td>Grafana</td><td>完整历史日志、指标、链路面板</td><td><code>PEAPOD_GRAFANA_PUBLIC_URL</code></td></tr>
           </tbody>
         </table>
       </article>
 
       <article class="doc-card">
         <h2>监控主机</h2>
-        <p>通过 <code>ZEPHYR_MONITOR_HOSTS_JSON</code> 配置需要观察的机器、Beszel 名称、SSH 只读兜底和核心容器。</p>
+        <p>通过 <code>PEAPOD_MONITOR_HOSTS_JSON</code> 配置需要观察的机器、Beszel 名称、SSH 只读兜底和核心容器。</p>
         <div class="code-block">[{"id":"prod","name":"生产机","role":"production","ssh_host":"example.com:22","ssh_user":"ops","containers":["api","worker","mysql"]}]</div>
       </article>
     </section>
@@ -4380,7 +4400,7 @@ var docsTemplate = template.Must(template.New("docs").Parse(`<!doctype html>
 
 const faviconPath = `/peapod-logo.svg?v=pea`
 
-const zephyrLogo = `
+const peapodLogo = `
 <img class="peapod-logo" src="/peapod-logo.svg?v=pea" alt="" draggable="false" />`
 
 const css = `
@@ -4449,8 +4469,8 @@ button:disabled { opacity:.55; cursor:not-allowed; }
 .login-card { position:relative; z-index:1; width:min(420px,100%); padding:28px; background:rgba(251,253,249,.96); border:1px solid var(--line); border-radius:8px; box-shadow:0 28px 70px rgba(39,78,31,.12); }
 .brand-mark { width:58px; height:58px; display:grid; place-items:center; margin-bottom:14px; }
 .brand-mark-small { width:44px; height:44px; margin-bottom:0; flex:0 0 auto; }
-.peapod-logo, .zephyr-logo { width:100%; height:100%; display:block; object-fit:contain; user-select:none; filter:drop-shadow(0 10px 22px rgba(39,78,31,.18)); }
-.brand-mark-small .peapod-logo, .brand-mark-small .zephyr-logo { filter:drop-shadow(0 8px 16px rgba(39,78,31,.14)); }
+.peapod-logo { width:100%; height:100%; display:block; object-fit:contain; user-select:none; filter:drop-shadow(0 10px 22px rgba(39,78,31,.18)); }
+.brand-mark-small .peapod-logo { filter:drop-shadow(0 8px 16px rgba(39,78,31,.14)); }
 label { display:block; margin:14px 0 8px; font-weight:800; }
 input, select { width:100%; height:42px; border:1px solid var(--line); border-radius:7px; padding:0 12px; background:#fff; color:var(--ink); }
 .inline-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) auto; gap:10px; align-items:center; }

@@ -241,7 +241,7 @@ func (m *MonitoringService) collect(ctx context.Context, now time.Time) Monitori
 		Containers: containers,
 		Alerts:     alerts,
 		Links: map[string]string{
-			"zephyr":     m.cfg.PublicURL,
+			"peapod":     m.cfg.PublicURL,
 			"woodpecker": m.cfg.WoodpeckerPublicURL,
 			"grafana":    m.cfg.GrafanaPublicURL,
 			"beszel":     m.cfg.BeszelPublicURL,
@@ -254,10 +254,10 @@ func (m *MonitoringService) collect(ctx context.Context, now time.Time) Monitori
 
 func (m *MonitoringService) enrichFromBeszel(ctx context.Context, hosts []MonitoringHost, hostIndex map[string]int) (int, error) {
 	if m.cfg.BeszelBaseURL == "" {
-		return 0, errors.New("ZEPHYR_BESZEL_BASE_URL 未配置")
+		return 0, errors.New("PEAPOD_BESZEL_BASE_URL 未配置")
 	}
 	if m.cfg.BeszelEmail == "" || m.cfg.BeszelPassword == "" {
-		return 0, errors.New("ZEPHYR_BESZEL_EMAIL / ZEPHYR_BESZEL_PASSWORD 未配置")
+		return 0, errors.New("PEAPOD_BESZEL_EMAIL / PEAPOD_BESZEL_PASSWORD 未配置")
 	}
 	token, err := m.beszelToken(ctx)
 	if err != nil {
@@ -874,7 +874,7 @@ func parseMonitorHosts(cfg Config) []MonitorHostConfig {
 		if err := json.Unmarshal([]byte(cfg.MonitorHostsJSON), &hosts); err == nil {
 			return normalizeMonitorHosts(hosts, cfg.MonitorSSHKeyPath)
 		}
-		logMonitoringConfigError("ZEPHYR_MONITOR_HOSTS_JSON 解析失败，使用默认监控主机")
+		logMonitoringConfigError("PEAPOD_MONITOR_HOSTS_JSON 解析失败，使用默认监控主机")
 	}
 	return normalizeMonitorHosts(defaultMonitorHosts(), cfg.MonitorSSHKeyPath)
 }
@@ -885,9 +885,9 @@ func defaultMonitorHosts() []MonitorHostConfig {
 			ID:          "local",
 			Name:        "本机",
 			Role:        "infra",
-			BeszelNames: []string{"local", "localhost", "本机", "zephyr"},
+			BeszelNames: []string{"local", "localhost", "本机", "peapod", "zephyr"},
 			Containers: []string{
-				"zephyr",
+				"peapod",
 				"woodpecker-server",
 				"woodpecker-agent",
 				"beszel",

@@ -51,18 +51,20 @@ npm --prefix frontend run build
 
 Peapod is intentionally configuration-driven.
 
-Compatibility note: the product name is Peapod, but the first stable release still keeps the `ZEPHYR_*` environment variables, `zephyr_*` tables, and default `/opt/zephyr` runtime path for zero-downtime upgrades from older installs.
+Peapod is configured through `PEAPOD_*` environment variables plus the runtime configuration saved from the Settings page.
 
-- Repositories and deployment tasks live in `data/zephyr/tasks.json`.
-- Monitored hosts live in `ZEPHYR_MONITOR_HOSTS_JSON`.
-- External links live in `ZEPHYR_LINKS_JSON`.
-- User accounts can use MySQL through `ZEPHYR_DB_DSN`; otherwise Peapod falls back to a single emergency password.
-- The default compose stack includes a local `zephyr-mysql` service for team accounts, audit logs, and setup state. You can later point `ZEPHYR_DB_DSN` to a managed MySQL instance without changing Peapod code.
+- Repositories and deployment tasks live in `data/peapod/tasks.json`.
+- Monitored hosts live in `PEAPOD_MONITOR_HOSTS_JSON`.
+- External links live in `PEAPOD_LINKS_JSON`.
+- User accounts can use MySQL through `PEAPOD_DB_DSN`; otherwise Peapod falls back to a single emergency password.
+- The default compose stack includes a local `peapod-mysql` service for team accounts, audit logs, and setup state. You can later point `PEAPOD_DB_DSN` to a managed MySQL instance without changing Peapod code.
+
+Compatibility note: upgrades from earlier internal builds can still read legacy environment aliases and copy old account data into the new `peapod_*` tables at startup. New installs and docs should use Peapod names only.
 
 The bundled `examples/` folder contains:
 
 - `tasks.generic.json`: neutral example for a normal service
-- `tasks.zephyr-self.json`: Peapod self-deploy tasks for Woodpecker
+- `tasks.peapod-self.json`: Peapod self-deploy tasks for Woodpecker
 - `monitor-hosts.generic.json`: local + remote host monitoring example
 - `tasks.novelcat.json`: our studio-specific migration example, intentionally outside the app defaults
 
@@ -77,8 +79,8 @@ The bundled `examples/` folder contains:
 At minimum, set these in `.env`:
 
 ```env
-ZEPHYR_SESSION_SECRET=...
-ZEPHYR_PASSWORD=...
+PEAPOD_SESSION_SECRET=...
+PEAPOD_PASSWORD=...
 WOODPECKER_TOKEN=...
 WOODPECKER_AGENT_SECRET=...
 ```
@@ -86,17 +88,17 @@ WOODPECKER_AGENT_SECRET=...
 For real team usage, keep database auth enabled. The default local Docker MySQL DSN looks like:
 
 ```env
-ZEPHYR_DB_DSN=zephyr:password@tcp(zephyr-mysql:3306)/zephyr?parseTime=true&charset=utf8mb4&loc=Local
-ZEPHYR_BOOTSTRAP_USERNAME=admin
-ZEPHYR_BOOTSTRAP_PASSWORD=change-this-on-first-login
+PEAPOD_DB_DSN=peapod:password@tcp(mysql:3306)/peapod?parseTime=true&charset=utf8mb4&loc=Local
+PEAPOD_BOOTSTRAP_USERNAME=admin
+PEAPOD_BOOTSTRAP_PASSWORD=change-this-on-first-login
 ```
 
-To move to cloud MySQL later, create the same database and change only `ZEPHYR_DB_DSN`.
+To move to cloud MySQL later, create the same database and change only `PEAPOD_DB_DSN`.
 
 Peapod creates these tables automatically:
 
-- `zephyr_users`
-- `zephyr_deploy_audit_logs`
+- `peapod_users`
+- `peapod_deploy_audit_logs`
 
 ## Deployment Tasks
 
@@ -118,36 +120,36 @@ Task example:
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "deploy",
-        "ZEPHYR_PROJECT_ID": "app",
-        "ZEPHYR_PROJECT_NAME": "业务服务",
-        "ZEPHYR_DEPLOY_MARKER_PATH": "/opt/your-service/.deploy/current-source-sha",
-        "ZEPHYR_DEPLOY_VERIFY_URL": "http://127.0.0.1:8080/healthz"
+        "PEAPOD_PROJECT_ID": "app",
+        "PEAPOD_PROJECT_NAME": "业务服务",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/your-service/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "http://127.0.0.1:8080/healthz"
       }
     }
   ]
 }
 ```
 
-Use the same `ZEPHYR_PROJECT_ID` for deploy and rollback tasks so the project status table can merge them into one service row.
-Deploy and rollback tasks must set `ZEPHYR_DEPLOY_MARKER_PATH` or `ZEPHYR_DEPLOY_VERIFY_URL`. Peapod treats a Woodpecker success as only a build result; a deployment becomes the current verified online version only after the marker commit matches and/or the health endpoint returns 2xx/3xx. Without either check, Peapod shows "build succeeded, deployment unverified" and disables that task as a trusted deploy entry.
+Use the same `PEAPOD_PROJECT_ID` for deploy and rollback tasks so the project status table can merge them into one service row.
+Deploy and rollback tasks must set `PEAPOD_DEPLOY_MARKER_PATH` or `PEAPOD_DEPLOY_VERIFY_URL`. Peapod treats a Woodpecker success as only a build result; a deployment becomes the current verified online version only after the marker commit matches and/or the health endpoint returns 2xx/3xx. Without either check, Peapod shows "build succeeded, deployment unverified" and disables that task as a trusted deploy entry.
 
 ## Peapod Self Deploy
 
 This repository includes `.woodpecker/deploy.yml` for Peapod itself. It is a manual pipeline with three supported actions:
 
-- `DEPLOY_ACTION=status`: check the host service and health endpoint.
-- `DEPLOY_ACTION=restart`: restart the host Peapod service.
-- `DEPLOY_ACTION=deploy`: run frontend build, Go tests, Go build, copy the new release into `/opt/zephyr`, and restart.
+- `DEPLOY_ACTION=status`: check the Peapod compose service and health endpoint.
+- `DEPLOY_ACTION=restart`: restart the Peapod compose service.
+- `DEPLOY_ACTION=deploy`: run frontend build, Go tests, build the Peapod image, run `docker compose up -d peapod`, and verify health.
 
 To enable it on a new operations machine:
 
 1. Enable the Peapod repository in Woodpecker.
-2. Mark the repo as trusted for volumes, because the deploy step mounts `/var/run/docker.sock` and `/opt/zephyr`.
-3. Add the task snippet from `examples/tasks.zephyr-self.json` into `data/zephyr/tasks.json`.
+2. Mark the repo as trusted for volumes, because the deploy step mounts `/var/run/docker.sock` and `/opt/peapod`.
+3. Add the task snippet from `examples/tasks.peapod-self.json` into `data/peapod/tasks.json`.
 4. Replace `repo_id` and `repo_name` with the real Woodpecker repo id and Git repo name.
 5. Run `检查 Peapod 状态` first, then run `部署 Peapod`.
 
-The current deploy script expects Peapod to run as a host systemd service named `zephyr`. If you run Peapod only as a Compose container, keep using `docker compose up -d --build` or adapt `scripts/deploy-zephyr-local.sh` for that deployment shape.
+The bundled deploy script expects Peapod to live at `/opt/peapod` and run as the `peapod` Docker Compose service.
 
 ## Build Queue
 
@@ -158,16 +160,16 @@ Keep `WOODPECKER_MAX_WORKFLOWS=1` on small operations machines. Peapod can trigg
 Minimal example:
 
 ```env
-ZEPHYR_MONITOR_HOSTS_JSON=[{"id":"prod","name":"生产机","role":"production","ssh_host":"example.com:22","ssh_user":"ops","containers":["api","worker","mysql"]}]
+PEAPOD_MONITOR_HOSTS_JSON=[{"id":"prod","name":"生产机","role":"production","ssh_host":"example.com:22","ssh_user":"ops","containers":["api","worker","mysql"]}]
 ```
 
 Beszel is preferred. SSH is only a read-only fallback and uses:
 
 ```env
-ZEPHYR_MONITOR_SSH_KEY_PATH=/data/ssh/monitor_ed25519
+PEAPOD_MONITOR_SSH_KEY_PATH=/data/ssh/monitor_ed25519
 ```
 
-Put the private key at `data/zephyr/ssh/monitor_ed25519` when using the default compose volume path.
+Put the private key at `data/peapod/ssh/monitor_ed25519` when using the default compose volume path.
 
 ## Migrating To A New Machine
 
@@ -175,7 +177,7 @@ Put the private key at `data/zephyr/ssh/monitor_ed25519` when using the default 
 2. Clone this repository.
 3. Run `scripts/bootstrap.sh`.
 4. Edit `.env` public URLs, secrets, database DSN, and OAuth settings.
-5. Put deploy tasks into `data/zephyr/tasks.json`.
+5. Put deploy tasks into `data/peapod/tasks.json`.
 6. Configure Beszel systems or SSH fallback hosts.
 7. Run `docker compose up -d --build`.
 
@@ -191,4 +193,4 @@ For small machines, keep the default lightweight profile first. It uses Beszel f
 
 ## Boundary
 
-Peapod should stay generic. Product-specific scripts, dashboards, repositories, and task variables belong in `examples/`, `data/zephyr/tasks.json`, or the target project repositories. Do not hard-code business project names into Peapod itself.
+Peapod should stay generic. Product-specific scripts, dashboards, repositories, and task variables belong in `examples/`, `data/peapod/tasks.json`, or the target project repositories. Do not hard-code business project names into Peapod itself.

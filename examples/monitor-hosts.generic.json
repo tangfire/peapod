@@ -3,8 +3,8 @@
     "id": "local",
     "name": "本机",
     "role": "infra",
-    "beszel_names": ["local", "localhost", "本机", "zephyr"],
-    "containers": ["zephyr", "woodpecker-server", "woodpecker-agent", "beszel", "grafana", "loki", "prometheus", "tempo"]
+    "beszel_names": ["local", "localhost", "本机", "peapod"],
+    "containers": ["peapod", "woodpecker-server", "woodpecker-agent", "beszel", "dozzle", "grafana", "loki", "prometheus", "tempo"]
   },
   {
     "id": "remote-prod",

@@ -125,8 +125,7 @@ body {
   margin: 0 0 10px;
 }
 
-.peapod-logo,
-.zephyr-logo {
+.peapod-logo {
   display: block;
   object-fit: contain;
   user-select: none;

@@ -82,8 +82,8 @@ func TestDeploymentStatusesOnlyVerifiedPipelineBecomesCurrent(t *testing.T) {
 		Branch: "main",
 		Variables: map[string]string{
 			"DEPLOY_ACTION":             "deploy",
-			"ZEPHYR_PROJECT_ID":         "app",
-			"ZEPHYR_DEPLOY_MARKER_PATH": marker,
+			"PEAPOD_PROJECT_ID":         "app",
+			"PEAPOD_DEPLOY_MARKER_PATH": marker,
 		},
 	}
 	pipelines := map[int][]Pipeline{7: {
@@ -114,13 +114,13 @@ func TestNormalizeTaskConfigRequiresDeploymentVerification(t *testing.T) {
 		Branch: "main",
 		Variables: map[string]string{
 			"DEPLOY_ACTION":     "deploy",
-			"ZEPHYR_PROJECT_ID": "app",
+			"PEAPOD_PROJECT_ID": "app",
 		},
 	}
 	if err := normalizeTaskConfig(&task); err == nil {
 		t.Fatal("normalizeTaskConfig returned nil, want verification error")
 	}
-	task.Variables["ZEPHYR_DEPLOY_VERIFY_URL"] = "http://127.0.0.1:8080/healthz"
+	task.Variables["PEAPOD_DEPLOY_VERIFY_URL"] = "http://127.0.0.1:8080/healthz"
 	if err := normalizeTaskConfig(&task); err != nil {
 		t.Fatalf("normalizeTaskConfig with healthz returned error: %v", err)
 	}

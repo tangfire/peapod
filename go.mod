@@ -1,4 +1,4 @@
-module zephyr
+module peapod
 
 go 1.22
 

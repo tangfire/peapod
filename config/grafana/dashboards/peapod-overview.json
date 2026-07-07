@@ -75,7 +75,7 @@
   ],
   "schemaVersion": 39,
   "tags": [
-    "zephyr",
+    "peapod",
     "infra"
   ],
   "templating": {
@@ -88,7 +88,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Peapod Overview",
-  "uid": "zephyr-overview",
+  "uid": "peapod-overview",
   "version": 1,
   "weekStart": ""
 }
