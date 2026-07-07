@@ -27,6 +27,77 @@ func TestParseDozzleLogTextMasksSensitiveData(t *testing.T) {
 	}
 }
 
+func TestParseDozzleLogTextPreservesApplicationJSON(t *testing.T) {
+	container := LogContainer{ID: "abc123", Name: "api", Host: "novel-production", HostName: "写书猫生产机"}
+	text := `{"level":"warn","ts":"2026-07-07T07:38:16.000Z","message":"HTTP request needs attention","status":200,"latency_ms":64489,"error":""}`
+
+	lines := parseDozzleLogText(text, container)
+	if len(lines) != 1 {
+		t.Fatalf("expected one line, got %d", len(lines))
+	}
+	if lines[0].Level != "warn" {
+		t.Fatalf("expected warn level, got %q", lines[0].Level)
+	}
+	if !strings.Contains(lines[0].Message, "latency_ms") || !strings.Contains(lines[0].Message, "status") {
+		t.Fatalf("application JSON context was not preserved: %q", lines[0].Message)
+	}
+	if lines[0].Timestamp != "2026-07-07T07:38:16.000Z" {
+		t.Fatalf("expected ts to be promoted to timestamp, got %q", lines[0].Timestamp)
+	}
+}
+
+func TestFilterAndLimitLogLinesUsesNormalizedLevels(t *testing.T) {
+	lines := []LogLine{
+		{Message: `{"level":"info","message":"ok","error":""}`, Host: "ops", HostName: "Peapod 运维机", ContainerName: "peapod"},
+		{Message: `{"level":"info","message":"db unavailable","error":"dial tcp timeout"}`, Host: "prod", HostName: "写书猫生产机", ContainerName: "novel-api"},
+		{Message: "\x1b[31mError 1064: SQL syntax error\x1b[0m", Host: "prod", HostName: "写书猫生产机", ContainerName: "mysql"},
+		{Message: "[08:47:31] ℹ️ [ROUTING] complete", Host: "edge", HostName: "e站生产机", ContainerName: "9router"},
+		{Message: "disconnect: ResponseAborted", Host: "edge", HostName: "e站生产机", ContainerName: "9router"},
+	}
+
+	errors := filterAndLimitLogLines(lines, LogQueryRequest{Level: "error", Tail: 100})
+	if len(errors) != 2 {
+		t.Fatalf("expected 2 error lines, got %d: %+v", len(errors), errors)
+	}
+	for _, line := range errors {
+		if strings.Contains(line.Message, "\x1b") {
+			t.Fatalf("ANSI escape code leaked into message: %q", line.Message)
+		}
+		if line.Level != "error" {
+			t.Fatalf("expected normalized error level, got %+v", line)
+		}
+	}
+
+	warnings := filterAndLimitLogLines(lines, LogQueryRequest{Level: "warn", Tail: 100})
+	if len(warnings) != 1 || warnings[0].Level != "warn" {
+		t.Fatalf("expected one warn line, got %+v", warnings)
+	}
+
+	byHost := filterAndLimitLogLines(lines, LogQueryRequest{Keyword: "生产机", Tail: 100})
+	if len(byHost) != 4 {
+		t.Fatalf("expected keyword to match host names, got %d: %+v", len(byHost), byHost)
+	}
+}
+
+func TestParseSSHDockerLogsNormalizesPlainText(t *testing.T) {
+	container := LogContainer{ID: "mysql", Name: "mysql", Host: "prod", HostName: "生产机"}
+	output := "2026-07-07T08:00:00Z \x1b[31mError 1064: SQL syntax error\x1b[0m\n2026-07-07T08:00:01Z [INFO] ready\n"
+
+	lines := parseSSHDockerLogs(output, container)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Fatalf("expected first line to be error, got %+v", lines[0])
+	}
+	if strings.Contains(lines[0].Message, "\x1b") {
+		t.Fatalf("ANSI escape code leaked: %q", lines[0].Message)
+	}
+	if lines[1].Level != "info" {
+		t.Fatalf("expected second line to be info, got %+v", lines[1])
+	}
+}
+
 func TestMCPJSONPayloadParsesSSE(t *testing.T) {
 	body := []byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n")
 	payload := mcpJSONPayload(body, "text/event-stream")

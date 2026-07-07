@@ -14,6 +14,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,13 @@ type dozzleMCPClient struct {
 var (
 	sensitiveInlinePattern = regexp.MustCompile(`(?i)\b(password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|private[_-]?key|access[_-]?key|credential)\b\s*[:=]\s*("[^"]*"|'[^']*'|[^,\s;]+)`)
 	bearerPattern          = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+`)
+	ansiEscapePattern      = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	fatalLogPattern        = regexp.MustCompile(`(?i)\b(fatal|panic)\b`)
+	errorLogPattern        = regexp.MustCompile(`(?i)\b(error|erro|exception|failed|failure|traceback|uncaught|sqlstate|connection refused|permission denied|no such host|syntax error)\b`)
+	warnLogPattern         = regexp.MustCompile(`(?i)\b(warn|warning|slow query|responseaborted|record not found)\b`)
+	debugLogPattern        = regexp.MustCompile(`(?i)\b(debug|trace)\b`)
+	infoLogPattern         = regexp.MustCompile(`(?i)(\binfo\b|ℹ️|\[info\])`)
+	emptyErrorFieldPattern = regexp.MustCompile(`(?i)"(?:error|err)"\s*:\s*(""|null|false)`)
 )
 
 func (a *App) logsSummary(w http.ResponseWriter, r *http.Request) {
@@ -701,34 +709,34 @@ func parseDozzleLogText(text string, container LogContainer) []LogLine {
 		if raw == "" {
 			continue
 		}
-		var entry struct {
-			Timestamp string `json:"timestamp"`
-			Level     string `json:"level"`
-			Stream    string `json:"stream"`
-			Type      string `json:"type"`
-			Message   any    `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(raw), &entry); err == nil {
-			lines = append(lines, LogLine{
-				Timestamp:     entry.Timestamp,
-				Level:         strings.ToLower(entry.Level),
-				Stream:        entry.Stream,
-				Type:          entry.Type,
-				Message:       maskSensitiveLogText(messageToLogText(entry.Message)),
+		if payload, ok := parseLogJSONObject(raw); ok {
+			message := raw
+			if isDozzleLogEnvelope(payload) {
+				message = messageToLogText(payload["message"])
+				if strings.TrimSpace(message) == "" {
+					message = raw
+				}
+			}
+			lines = append(lines, normalizeLogLine(LogLine{
+				Timestamp:     firstLogStringField(payload, "timestamp", "ts", "time", "datetime"),
+				Level:         firstLogStringField(payload, "level", "severity", "log_level", "lvl"),
+				Stream:        firstLogStringField(payload, "stream"),
+				Type:          firstLogStringField(payload, "type"),
+				Message:       message,
 				Host:          container.Host,
 				HostName:      container.HostName,
 				ContainerID:   container.ID,
 				ContainerName: container.Name,
-			})
+			}))
 			continue
 		}
-		lines = append(lines, LogLine{
-			Message:       maskSensitiveLogText(raw),
+		lines = append(lines, normalizeLogLine(LogLine{
+			Message:       raw,
 			Host:          container.Host,
 			HostName:      container.HostName,
 			ContainerID:   container.ID,
 			ContainerName: container.Name,
-		})
+		}))
 	}
 	return lines
 }
@@ -754,15 +762,332 @@ func messageToLogText(value any) string {
 	}
 }
 
+func parseLogJSONObject(text string) (map[string]any, bool) {
+	text = strings.TrimSpace(stripANSIEscapeCodes(text))
+	if !strings.HasPrefix(text, "{") {
+		return nil, false
+	}
+	var payload map[string]any
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil || len(payload) == 0 {
+		return nil, false
+	}
+	return payload, true
+}
+
+func isDozzleLogEnvelope(payload map[string]any) bool {
+	if _, ok := lookupLogField(payload, "message"); !ok {
+		return false
+	}
+	_, hasStream := lookupLogField(payload, "stream")
+	_, hasType := lookupLogField(payload, "type")
+	return hasStream || hasType
+}
+
+func lookupLogField(payload map[string]any, key string) (any, bool) {
+	if value, ok := payload[key]; ok {
+		return value, true
+	}
+	for candidate, value := range payload {
+		if strings.EqualFold(candidate, key) {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func firstLogStringField(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := lookupLogField(payload, key)
+		if !ok {
+			continue
+		}
+		if text := logFieldString(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func logFieldString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func normalizeLogLine(line LogLine) LogLine {
+	message := stripANSIEscapeCodes(line.Message)
+	line.Level = inferLogLevelFromMessage(line.Level, message)
+	line.Message = maskSensitiveLogText(strings.TrimSpace(message))
+	line.Stream = strings.ToLower(strings.TrimSpace(line.Stream))
+	line.Type = strings.TrimSpace(line.Type)
+	line.Host = strings.TrimSpace(line.Host)
+	line.HostName = strings.TrimSpace(line.HostName)
+	line.ContainerID = strings.TrimSpace(line.ContainerID)
+	line.ContainerName = strings.TrimSpace(line.ContainerName)
+	if line.Timestamp == "" {
+		if payload, ok := parseLogJSONObject(message); ok {
+			line.Timestamp = firstLogStringField(payload, "timestamp", "ts", "time", "datetime")
+		}
+	}
+	return line
+}
+
+func inferLogLevelFromMessage(rawLevel string, message string) string {
+	base := normalizeLogLevel(rawLevel)
+	structured := inferStructuredLogLevel(message)
+	if structured != "" && severityRank(structured) > severityRank(base) {
+		return structured
+	}
+	if base != "" {
+		return base
+	}
+	if plain := inferPlainTextLogLevel(message); plain != "" {
+		return plain
+	}
+	return "log"
+}
+
+func inferStructuredLogLevel(message string) string {
+	payload, ok := parseLogJSONObject(message)
+	if !ok {
+		return ""
+	}
+	level := normalizeLogLevel(firstLogStringField(payload, "level", "severity", "log_level", "lvl"))
+	if errorSeverity := structuredErrorSeverity(payload); errorSeverity != "" && severityRank(errorSeverity) > severityRank(level) {
+		level = errorSeverity
+	}
+	if statusSeverity := structuredHTTPStatusSeverity(payload); statusSeverity != "" && severityRank(statusSeverity) > severityRank(level) {
+		level = statusSeverity
+	}
+	if latencySeverity := structuredLatencySeverity(payload); latencySeverity != "" && severityRank(latencySeverity) > severityRank(level) {
+		level = latencySeverity
+	}
+	return level
+}
+
+func structuredErrorSeverity(payload map[string]any) string {
+	for _, key := range []string{"error", "err", "exception"} {
+		value, ok := lookupLogField(payload, key)
+		if !ok || !isMeaningfulLogValue(value) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(logFieldString(value)), "record not found") {
+			return "warn"
+		}
+		return "error"
+	}
+	for _, key := range []string{"stack", "stacktrace", "traceback"} {
+		value, ok := lookupLogField(payload, key)
+		if ok && isMeaningfulLogValue(value) {
+			return "error"
+		}
+	}
+	return ""
+}
+
+func structuredHTTPStatusSeverity(payload map[string]any) string {
+	for _, key := range []string{"status", "status_code", "code", "http_status"} {
+		value, ok := lookupLogField(payload, key)
+		if !ok {
+			continue
+		}
+		status, ok := numericLogValue(value)
+		if !ok {
+			continue
+		}
+		if status >= 500 {
+			return "error"
+		}
+		if status >= 400 {
+			return "warn"
+		}
+	}
+	return ""
+}
+
+func structuredLatencySeverity(payload map[string]any) string {
+	for _, key := range []string{"latency_ms", "duration_ms", "elapsed_ms", "cost_ms"} {
+		value, ok := lookupLogField(payload, key)
+		if !ok {
+			continue
+		}
+		latency, ok := numericLogValue(value)
+		if ok && latency >= 30000 {
+			return "warn"
+		}
+	}
+	return ""
+}
+
+func numericLogValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		number, err := typed.Float64()
+		return number, err == nil
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return 0, false
+		}
+		number, err := strconv.ParseFloat(text, 64)
+		return number, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func isMeaningfulLogValue(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case json.Number:
+		return typed.String() != "" && typed.String() != "0"
+	case float64:
+		return typed != 0
+	case string:
+		text := strings.TrimSpace(strings.ToLower(typed))
+		return text != "" && text != "null" && text != "nil" && text != "<nil>" && text != "false" && text != "0"
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed)) != ""
+	}
+}
+
+func inferPlainTextLogLevel(message string) string {
+	text := emptyErrorFieldPattern.ReplaceAllString(stripANSIEscapeCodes(message), "")
+	switch {
+	case fatalLogPattern.MatchString(text):
+		return "fatal"
+	case errorLogPattern.MatchString(text):
+		return "error"
+	case warnLogPattern.MatchString(text):
+		return "warn"
+	case debugLogPattern.MatchString(text):
+		return "debug"
+	case infoLogPattern.MatchString(text):
+		return "info"
+	default:
+		return ""
+	}
+}
+
+func normalizeLogLevel(level string) string {
+	level = strings.ToLower(strings.TrimSpace(level))
+	if level == "" {
+		return ""
+	}
+	switch level {
+	case "warning", "warn":
+		return "warn"
+	case "err", "erro", "error":
+		return "error"
+	case "fatal", "panic", "critical", "crit", "emergency", "alert":
+		return "fatal"
+	case "debug", "trace":
+		return "debug"
+	case "info", "information", "notice":
+		return "info"
+	case "stdout", "stderr", "single":
+		return "log"
+	default:
+		return level
+	}
+}
+
+func severityRank(level string) int {
+	switch normalizeLogLevel(level) {
+	case "fatal":
+		return 5
+	case "error":
+		return 4
+	case "warn":
+		return 3
+	case "info":
+		return 2
+	case "debug":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func logLineMatchesKeyword(line LogLine, keyword string) bool {
+	if keyword == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(logLineSearchText(line)), keyword)
+}
+
+func logLineSearchText(line LogLine) string {
+	return strings.Join([]string{
+		line.Timestamp,
+		line.Level,
+		line.Stream,
+		line.Type,
+		line.Message,
+		line.Host,
+		line.HostName,
+		line.ContainerID,
+		line.ContainerName,
+	}, " ")
+}
+
+func logLevelMatchesFilter(lineLevel string, filter string) bool {
+	filter = normalizeLogLevel(filter)
+	if filter == "" || filter == "all" {
+		return true
+	}
+	level := normalizeLogLevel(lineLevel)
+	switch filter {
+	case "error":
+		return level == "error" || level == "fatal" || level == "panic"
+	case "warn":
+		return level == "warn"
+	case "debug":
+		return level == "debug" || level == "trace"
+	case "info":
+		return level == "info"
+	default:
+		return level == filter
+	}
+}
+
+func stripANSIEscapeCodes(text string) string {
+	return ansiEscapePattern.ReplaceAllString(text, "")
+}
+
 func filterAndLimitLogLines(lines []LogLine, input LogQueryRequest) []LogLine {
-	keyword := strings.ToLower(input.Keyword)
+	keyword := strings.ToLower(stripANSIEscapeCodes(input.Keyword))
 	level := strings.ToLower(input.Level)
 	out := make([]LogLine, 0, len(lines))
 	for _, line := range lines {
-		if keyword != "" && !strings.Contains(strings.ToLower(line.Message), keyword) && !strings.Contains(strings.ToLower(line.ContainerName), keyword) {
+		line = normalizeLogLine(line)
+		if keyword != "" && !logLineMatchesKeyword(line, keyword) {
 			continue
 		}
-		if level != "" && level != "all" && !strings.Contains(strings.ToLower(line.Level), level) && !strings.Contains(strings.ToLower(line.Message), level) {
+		if !logLevelMatchesFilter(line.Level, level) {
 			continue
 		}
 		out = append(out, line)
@@ -884,14 +1209,14 @@ func parseSSHDockerLogs(output string, container LogContainer) []LogLine {
 				message = strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
 			}
 		}
-		lines = append(lines, LogLine{
+		lines = append(lines, normalizeLogLine(LogLine{
 			Timestamp:     timestamp,
-			Message:       maskSensitiveLogText(message),
+			Message:       message,
 			Host:          container.Host,
 			HostName:      container.HostName,
 			ContainerID:   container.ID,
 			ContainerName: container.Name,
-		})
+		}))
 	}
 	return lines
 }
