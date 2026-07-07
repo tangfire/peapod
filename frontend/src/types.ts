@@ -127,6 +127,18 @@ export type DeploymentStatus = {
   previous_commit?: string;
   previous_deployed_at?: number;
   previous_pipeline?: number;
+  revisions?: DeploymentRevision[];
+};
+
+export type DeploymentRevision = {
+  pipeline: number;
+  branch: string;
+  commit: string;
+  deployed_at: number;
+  action: string;
+  verified: boolean;
+  triggered_by?: string;
+  triggered_at?: string;
 };
 
 export type User = {

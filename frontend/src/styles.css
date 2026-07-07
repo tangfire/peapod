@@ -815,6 +815,45 @@ body {
   border-radius: 8px;
 }
 
+.deploy-action-placeholder {
+  margin-inline-end: 0;
+  cursor: default;
+}
+
+.deploy-rollback-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #e6ece2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.deploy-rollback-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.deploy-rollback-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #edf1ea;
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.deploy-rollback-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .mobile-deploy-object-list {
   display: none;
 }
@@ -1774,6 +1813,19 @@ body {
 
   .deploy-object-status-strip {
     grid-template-columns: 1fr;
+  }
+
+  .deploy-rollback-list {
+    grid-template-columns: 1fr;
+  }
+
+  .deploy-rollback-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .deploy-rollback-item .ant-btn {
+    width: 100%;
   }
 
   .mobile-deploy-object-list {

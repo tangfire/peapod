@@ -53,10 +53,16 @@ import {
   branchOptionsForRepo,
   branchOptionsForTask,
   canRunTask,
+  deploymentStatusForTask,
   flattenPipelines,
+  isRollbackTask,
   recentFailedPipelineCount,
   parseVariables,
   pipelineURL,
+  rollbackPresetInputs,
+  rollbackRevisionKey,
+  rollbackRevisionLabel,
+  rollbackRevisionsForStatus,
   variablesText,
   peapodNavItems
 } from "./pages";
@@ -144,6 +150,24 @@ function LoginPage() {
       </Card>
     </main>
   );
+}
+
+function rollbackInputsFromForm(task: Task, statuses: DeploymentStatus[], values: Record<string, string>): Record<string, string> {
+  const status = deploymentStatusForTask(task, statuses);
+  const revisions = rollbackRevisionsForStatus(status);
+  const selected = revisions.find((revision) => rollbackRevisionKey(revision) === values.rollback_revision) || revisions[0];
+  const seeded: Record<string, string> = {};
+  for (const key of ["ROLLBACK_VERSION", "ROLLBACK_COMMIT", "ROLLBACK_BRANCH", "ROLLBACK_PIPELINE", "ROLLBACK_PIPELINE_NUMBER", "PEAPOD_ROLLBACK_COMMIT", "PEAPOD_ROLLBACK_BRANCH", "PEAPOD_ROLLBACK_PIPELINE"]) {
+    const value = String(values[key] || "").trim();
+    if (value) seeded[key] = value;
+  }
+  const result = selected ? { ...rollbackPresetInputs(selected), ...seeded } : seeded;
+  delete result.rollback_revision;
+  return result;
+}
+
+function isRollbackInputName(name: string): boolean {
+  return ["ROLLBACK_VERSION", "ROLLBACK_COMMIT", "ROLLBACK_BRANCH", "ROLLBACK_PIPELINE", "ROLLBACK_PIPELINE_NUMBER", "PEAPOD_ROLLBACK_COMMIT", "PEAPOD_ROLLBACK_BRANCH", "PEAPOD_ROLLBACK_PIPELINE"].includes(name.toUpperCase());
 }
 
 function Shell({ page }: { page: "home" | "docs" }) {
@@ -321,7 +345,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
     setTaskDrawerOpen(true);
   }
 
-  function openRunTask(task: Task) {
+  function openRunTask(task: Task, presetInputs: Record<string, string> = {}) {
     if (triggeringTaskIdsRef.current.has(task.id)) return;
     if (state && !canRunTask(state.current_user, task)) {
       message.warning("这个动作只允许管理员执行");
@@ -329,7 +353,13 @@ function Shell({ page }: { page: "home" | "docs" }) {
     }
     setRunTask(task);
     runForm.resetFields();
-    runForm.setFieldsValue({ branch: task.branch || "main" });
+    const initialValues: Record<string, string> = { branch: task.branch || "main", ...presetInputs };
+    if (state && isRollbackTask(task) && !initialValues.rollback_revision) {
+      const status = deploymentStatusForTask(task, state.deployment_statuses || []);
+      const target = rollbackRevisionsForStatus(status)[0];
+      if (target) Object.assign(initialValues, rollbackPresetInputs(target));
+    }
+    runForm.setFieldsValue(initialValues);
   }
 
   function openEditTask(task: Task) {
@@ -395,6 +425,9 @@ function Shell({ page }: { page: "home" | "docs" }) {
     const inputs: Record<string, string> = {};
     for (const item of task.inputs || []) {
       inputs[item.name] = values[item.name] || "";
+    }
+    if (isRollbackTask(task)) {
+      Object.assign(inputs, rollbackInputsFromForm(task, deploymentStatuses, values));
     }
     const branch = String(values.branch || task.branch || "main").trim();
     setTaskTriggering(task.id, true);
@@ -602,6 +635,9 @@ function Shell({ page }: { page: "home" | "docs" }) {
     return <LoadingShell error={loadError} onRetry={() => loadState({ notify: true })} />;
   }
 
+  const runDeploymentStatus = runTask ? deploymentStatusForTask(runTask, deploymentStatuses) : undefined;
+  const runRollbackTargets = runTask && isRollbackTask(runTask) ? rollbackRevisionsForStatus(runDeploymentStatus) : [];
+
   return (
     <Layout className="app-layout">
       <Header className="app-header">
@@ -680,6 +716,26 @@ function Shell({ page }: { page: "home" | "docs" }) {
                 <Alert type={runTask.risk === "danger" ? "error" : runTask.risk === "warning" ? "warning" : "info"} showIcon message={runTask.description} />
               )}
               <TaskRunContext task={runTask} statuses={deploymentStatuses} nowMs={nowMs} />
+              {isRollbackTask(runTask) && (
+                runRollbackTargets.length ? (
+                  <Form.Item
+                    label="回滚目标"
+                    name="rollback_revision"
+                    extra="只展示已验证成功部署；会把目标分支、commit 和流水线号传给底层流水线。"
+                    rules={[{ required: true, message: "请选择回滚目标" }]}
+                  >
+                    <Select
+                      optionFilterProp="label"
+                      options={runRollbackTargets.map((revision) => ({
+                        value: rollbackRevisionKey(revision),
+                        label: rollbackRevisionLabel(revision, nowMs)
+                      }))}
+                    />
+                  </Form.Item>
+                ) : (
+                  <Alert type="warning" showIcon message="这个任务没有可选的成功部署历史，底层脚本只能按自身记录决定回滚目标。" />
+                )
+              )}
               {activePipelines.length > 0 && (
                 <div className="run-queue-strip">
                   <Tag color="gold">队列 {activePipelines.length}</Tag>
@@ -701,7 +757,7 @@ function Shell({ page }: { page: "home" | "docs" }) {
                   placeholder="选择本次部署分支"
                 />
               </Form.Item>
-              {(runTask.inputs || []).map((item) => (
+              {(runTask.inputs || []).filter((item) => !(isRollbackTask(runTask) && isRollbackInputName(item.name))).map((item) => (
                 <Form.Item
                   key={item.name}
                   label={item.label}

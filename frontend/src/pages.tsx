@@ -59,6 +59,7 @@ import { ApiError, api, errorText } from "./api";
 import { PRODUCT_NAME, PRODUCT_REPO_NAME, PRODUCT_REPO_OWNER } from "./brand";
 import type {
   AuditRecord,
+  DeploymentRevision,
   DeploymentVerificationSummary,
   DeploymentStatus,
   LogContainer,
@@ -87,6 +88,8 @@ import type {
   WoodpeckerRepo,
   WoodpeckerReposResponse
 } from "./types";
+
+type TaskRunHandler = (task: Task, presetInputs?: Record<string, string>) => void;
 
 const { Text, Title } = Typography;
 
@@ -340,7 +343,7 @@ export function DeployPage({
   currentUser: User;
   triggeringTaskIds: string[];
   refreshing: boolean;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onRefresh: () => void;
   onConfigure: () => void;
   onCancel: (row: Pipeline) => void;
@@ -440,7 +443,7 @@ function DeployObjectConsole({
   triggeringTaskIds: string[];
   onQueryChange: (value: string) => void;
   onSelect: (id: string) => void;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onConfigure: () => void;
   onCancel: (row: Pipeline) => void;
   onInspect: (row: Pipeline) => void;
@@ -520,7 +523,7 @@ function DeployObjectListTable({
   currentUser: User;
   triggeringTaskIDSet: Set<string>;
   onSelect: (id: string) => void;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onConfigure: () => void;
   query: string;
   onQueryChange: (value: string) => void;
@@ -645,7 +648,7 @@ function DeployObjectDetailView({
   currentUser: User;
   triggeringTaskIDSet: Set<string>;
   onBack: () => void;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onCancel: (row: Pipeline) => void;
   onInspect: (row: Pipeline) => void;
 }) {
@@ -676,8 +679,67 @@ function DeployObjectDetailView({
           <DeployObjectRowActions item={item} woodpecker={woodpecker} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} onRun={onRun} showRollback />
         </div>
         <DeployObjectStatusStrip item={item} state={state} nowMs={nowMs} />
+        <DeployRollbackHistory item={item} currentUser={currentUser} triggeringTaskIDSet={triggeringTaskIDSet} nowMs={nowMs} onRun={onRun} />
         <DeployObjectExpandedPanel item={item} state={state} woodpecker={woodpecker} nowMs={nowMs} compact onCancel={onCancel} onInspect={onInspect} />
       </main>
+    </div>
+  );
+}
+
+function DeployRollbackHistory({
+  item,
+  currentUser,
+  triggeringTaskIDSet,
+  nowMs,
+  onRun
+}: {
+  item: DeployObject;
+  currentUser: User;
+  triggeringTaskIDSet: Set<string>;
+  nowMs: number;
+  onRun: TaskRunHandler;
+}) {
+  const rollbackTask = deployObjectRollbackTask(item);
+  if (!rollbackTask || !item.deployment) return null;
+  const revisions = rollbackRevisionsForStatus(item.deployment).slice(0, 6);
+  const canRun = canRunTask(currentUser, rollbackTask);
+  if (!revisions.length) {
+    return <Alert type="info" showIcon message="这个项目暂时没有可选的成功部署历史，不能指定版本回滚。" />;
+  }
+  return (
+    <div className="deploy-rollback-panel">
+      <div className="deploy-object-section-head">
+        <Space size={8}>
+          <RefreshCw size={16} />
+          <Text strong>可回滚历史</Text>
+          <Tag color="red">{revisions.length} 个候选</Tag>
+        </Space>
+        <Text type="secondary">只列出已验证成功的部署</Text>
+      </div>
+      <div className="deploy-rollback-list">
+        {revisions.map((revision) => (
+          <div className="deploy-rollback-item" key={rollbackRevisionKey(revision)}>
+            <div className="deploy-rollback-meta">
+              <Text strong>#{revision.pipeline || "-"}</Text>
+              <Text ellipsis={{ tooltip: rollbackRevisionLabel(revision, nowMs) }}>{revision.branch || "-"} · {(revision.commit || "").slice(0, 8) || "-"}</Text>
+              <Text type="secondary">{revision.deployed_at ? deployedAgeText(revision.deployed_at, nowMs) : "时间未知"}{revision.triggered_by ? ` · ${revision.triggered_by}` : ""}</Text>
+            </div>
+            <Tooltip title={canRun ? "按这个成功版本触发回滚" : taskDisabledTitle(currentUser, rollbackTask)}>
+              <span>
+                <Button
+                  size="small"
+                  danger
+                  disabled={!canRun}
+                  loading={triggeringTaskIDSet.has(rollbackTask.id)}
+                  onClick={() => onRun(rollbackTask, rollbackPresetInputs(revision))}
+                >
+                  回滚到这里
+                </Button>
+              </span>
+            </Tooltip>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -785,14 +847,16 @@ function DeployObjectRowActions({
   woodpecker: string;
   currentUser: User;
   triggeringTaskIDSet: Set<string>;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   showRollback?: boolean;
 }) {
   const lastPipeline = item.pipelines[0];
   const rollbackTask = deployObjectRollbackTask(item);
+  const rollbackTarget = firstRollbackRevision(item.deployment);
+  const deployBlockedTitle = item.primaryTask ? taskDisabledTitle(currentUser, item.primaryTask) : "没有匹配到这个项目的部署任务，请在设置里补齐项目 ID 和动作配置";
   return (
     <Space size={8} onClick={(event) => event.stopPropagation()}>
-      {item.primaryTask && canRunTask(currentUser, item.primaryTask) && (
+      {item.primaryTask && canRunTask(currentUser, item.primaryTask) ? (
         <Tooltip title={taskDisabledTitle(currentUser, item.primaryTask)}>
           <span>
             <Button
@@ -808,8 +872,12 @@ function DeployObjectRowActions({
             </Button>
           </span>
         </Tooltip>
+      ) : (
+        <Tooltip title={deployBlockedTitle}>
+          <Tag className="deploy-action-placeholder" color={item.primaryTask ? "default" : "gold"}>{item.primaryTask ? "不可执行" : "待配置"}</Tag>
+        </Tooltip>
       )}
-      {showRollback && rollbackTask && canRunTask(currentUser, rollbackTask) && (
+      {showRollback && rollbackTask && canRunTask(currentUser, rollbackTask) && rollbackTarget && (
         <Tooltip title={taskDisabledTitle(currentUser, rollbackTask)}>
           <span>
             <Button
@@ -817,11 +885,16 @@ function DeployObjectRowActions({
               danger
               loading={triggeringTaskIDSet.has(rollbackTask.id)}
               disabled={!canRunTask(currentUser, rollbackTask)}
-              onClick={() => onRun(rollbackTask)}
+              onClick={() => onRun(rollbackTask, rollbackPresetInputs(rollbackTarget))}
             >
-              回退
+              回滚
             </Button>
           </span>
+        </Tooltip>
+      )}
+      {showRollback && rollbackTask && !canRunTask(currentUser, rollbackTask) && (
+        <Tooltip title={taskDisabledTitle(currentUser, rollbackTask)}>
+          <Tag className="deploy-action-placeholder">回滚不可执行</Tag>
         </Tooltip>
       )}
       {lastPipeline ? <Button size="small" href={pipelineURL(woodpecker, lastPipeline)} target="_blank" icon={<ExternalLink size={14} />} /> : null}
@@ -832,7 +905,7 @@ function DeployObjectRowActions({
 function deployObjectRollbackTask(item: DeployObject): Task | undefined {
   if (!item.rollbackTask || !item.deployment) return undefined;
   const row = item.deployment;
-  if (row.previous_branch || row.previous_commit || row.previous_pipeline || row.previous_deployed_at) return item.rollbackTask;
+  if (firstRollbackRevision(row) || row.previous_branch || row.previous_commit || row.previous_pipeline || row.previous_deployed_at) return item.rollbackTask;
   return undefined;
 }
 
@@ -925,7 +998,7 @@ function DeployObjectMobileList({
   nowMs: number;
   currentUser: User;
   triggeringTaskIDSet: Set<string>;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onSelect: (id: string) => void;
   query: string;
   onQueryChange: (value: string) => void;
@@ -1317,12 +1390,13 @@ export function TaskRunContext({ task, statuses, nowMs }: { task: Task; statuses
   const currentAge = status.last_deployed_at ? deployedAgeText(status.last_deployed_at, nowMs) : "";
   const latestRun = `${status.latest_action || "-"} · ${statusText(status.latest_status)}`;
   const latestAge = status.latest_at ? deployedAgeText(status.latest_at, nowMs) : "";
-  const rollbackTarget = status.previous_branch ? `${status.previous_branch} · ${(status.previous_commit || "").slice(0, 8) || "-"}` : "由部署脚本按服务器记录决定";
+  const rollbackTargets = rollbackRevisionsForStatus(status);
+  const rollbackTarget = rollbackTargets[0] ? rollbackRevisionLabel(rollbackTargets[0], nowMs) : "没有可选成功版本";
   return (
     <div className="run-context-strip">
       <RunContextMetric label="线上" value={currentVersion} meta={currentAge} accent />
       <RunContextMetric label="最近" value={latestRun} meta={latestAge} />
-      {rollback && <RunContextMetric label="回退到" value={rollbackTarget} />}
+      {rollback && <RunContextMetric label="回滚目标" value={rollbackTarget} meta={rollbackTargets.length > 1 ? `可选 ${rollbackTargets.length} 个历史版本` : undefined} />}
     </div>
   );
 }
@@ -1348,7 +1422,7 @@ function TaskTable({
   state: StateResponse;
   filters: { group: string; repo: string; risk: string; q: string };
   triggeringTaskIds: string[];
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
   onEdit?: (task: Task) => void;
   onDelete?: (task: Task) => void;
 }) {
@@ -1917,7 +1991,7 @@ export function MonitoringView({
   loading: boolean;
   nowMs: number;
   onRefresh: () => void;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
 }) {
   const cleanupTasks = (state.tasks || []).filter(isCleanupTask);
   const links = summary?.links || state.links || {};
@@ -2050,7 +2124,7 @@ function MonitoringSystemTable({
   rows: MonitoringHost[];
   cleanupTasks: Task[];
   currentUser: User;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
 }) {
   const columns: ColumnsType<MonitoringHost> = [
     {
@@ -2200,7 +2274,7 @@ function MonitoringHostActions({
 }: {
   cleanupTask?: Task;
   currentUser: User;
-  onRun: (task: Task) => void;
+  onRun: TaskRunHandler;
 }) {
   const canCleanup = cleanupTask ? canRunTask(currentUser, cleanupTask) : false;
   if (!cleanupTask) {
@@ -5166,18 +5240,77 @@ function taskDisabledTitle(user: User, task: Task): string {
   return "";
 }
 
-function isRollbackTask(task: Task): boolean {
+export function isRollbackTask(task: Task): boolean {
   const variables = task.variables || {};
-  return variables.DEPLOY_ACTION === "rollback" || Boolean(variables.ROLLBACK_VERSION) || /rollback|回退/i.test(task.id + task.title);
+  return variables.DEPLOY_ACTION === "rollback" || Boolean(variables.ROLLBACK_VERSION) || /rollback|回退|回滚/i.test(task.id + task.title);
 }
 
-function deploymentStatusForTask(task: Task, statuses: DeploymentStatus[]): DeploymentStatus | undefined {
+export function deploymentStatusForTask(task: Task, statuses: DeploymentStatus[]): DeploymentStatus | undefined {
   const key = taskProjectKey(task);
   return statuses.find((item) => item.id === key || (item.repo_id === task.repo_id && normalizeKey(item.group || item.name) === normalizeKey(task.group || task.title)));
 }
 
+export function rollbackRevisionKey(revision: DeploymentRevision): string {
+  return `${revision.pipeline}:${revision.branch || ""}:${revision.commit || ""}`;
+}
+
+export function rollbackRevisionLabel(revision: DeploymentRevision, nowMs: number): string {
+  const commit = revision.commit ? revision.commit.slice(0, 8) : "-";
+  const branch = revision.branch || "-";
+  const age = revision.deployed_at ? deployedAgeText(revision.deployed_at, nowMs) : "时间未知";
+  const actor = revision.triggered_by ? ` · ${revision.triggered_by}` : "";
+  return `#${revision.pipeline} · ${branch} · ${commit} · ${age}${actor}`;
+}
+
+export function rollbackRevisionsForStatus(status?: DeploymentStatus): DeploymentRevision[] {
+  if (!status) return [];
+  const currentKey = `${status.pipeline}:${status.current_branch || ""}:${status.current_commit || ""}`;
+  const revisions = (status.revisions || []).filter((revision) => {
+    if (!revision.commit && !revision.pipeline) return false;
+    return `${revision.pipeline}:${revision.branch || ""}:${revision.commit || ""}` !== currentKey;
+  });
+  if (revisions.length) return revisions;
+  if (status.previous_branch || status.previous_commit || status.previous_pipeline || status.previous_deployed_at) {
+    return [
+      {
+        pipeline: status.previous_pipeline || 0,
+        branch: status.previous_branch || "-",
+        commit: status.previous_commit || "",
+        deployed_at: status.previous_deployed_at || 0,
+        action: status.previous_action || "上一成功部署",
+        verified: true
+      }
+    ];
+  }
+  return [];
+}
+
+function firstRollbackRevision(status?: DeploymentStatus): DeploymentRevision | undefined {
+  return rollbackRevisionsForStatus(status)[0];
+}
+
+export function rollbackPresetInputs(revision: DeploymentRevision): Record<string, string> {
+  const pipeline = revision.pipeline ? String(revision.pipeline) : "";
+  const commit = revision.commit || "";
+  const branch = revision.branch || "";
+  return {
+    rollback_revision: rollbackRevisionKey(revision),
+    ROLLBACK_VERSION: commit,
+    ROLLBACK_COMMIT: commit,
+    ROLLBACK_BRANCH: branch,
+    ROLLBACK_PIPELINE: pipeline,
+    ROLLBACK_PIPELINE_NUMBER: pipeline,
+    PEAPOD_ROLLBACK_COMMIT: commit,
+    PEAPOD_ROLLBACK_BRANCH: branch,
+    PEAPOD_ROLLBACK_PIPELINE: pipeline
+  };
+}
+
 function deploymentActionsForStatus(row: DeploymentStatus, tasks: Task[]): { deploy?: Task; rollback?: Task; extras: Task[] } {
-  const candidates = tasks.filter((task) => !task.external_url && taskMatchesDeploymentStatus(task, row));
+  let candidates = tasks.filter((task) => !task.external_url && taskMatchesDeploymentStatus(task, row));
+  if (!candidates.length) {
+    candidates = tasks.filter((task) => taskLooselyMatchesDeploymentStatus(task, row));
+  }
   const deploy = preferredDeployTask(candidates);
   const rollback = candidates.find((task) => isRollbackTask(task));
   return {
@@ -5211,6 +5344,23 @@ function taskMatchesDeploymentStatus(task: Task, row: DeploymentStatus): boolean
   if (rowKeys.some((key) => taskKey.includes(key))) return true;
   const group = normalizeKey(task.group || "");
   return Boolean(group && rowKeys.includes(group));
+}
+
+function taskLooselyMatchesDeploymentStatus(task: Task, row: DeploymentStatus): boolean {
+  if (!isDeployProjectTask(task) || task.repo_id !== row.repo_id) return false;
+  const rowKeys = [row.id, row.name, row.group]
+    .map((item) => normalizeKey(productText(item || "")))
+    .filter((item) => item.length >= 3);
+  if (!rowKeys.length) return false;
+  const taskKeys = [
+    taskProjectID(task),
+    taskProjectDisplayName([task]),
+    task.group,
+    task.title
+  ]
+    .map((item) => normalizeKey(productText(item || "")))
+    .filter((item) => item.length >= 3);
+  return taskKeys.some((taskKey) => rowKeys.some((rowKey) => taskKey === rowKey || taskKey.includes(rowKey) || rowKey.includes(taskKey)));
 }
 
 function preferredDeployTask(tasks: Task[]): Task | undefined {

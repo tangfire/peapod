@@ -338,39 +338,51 @@ type WoodpeckerRepoSaveRequest struct {
 }
 
 type DeploymentStatus struct {
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	Group               string            `json:"group"`
-	RepoID              int               `json:"repo_id"`
-	RepoName            string            `json:"repo_name"`
-	ConfiguredBranch    string            `json:"configured_branch"`
-	CurrentBranch       string            `json:"current_branch"`
-	CurrentCommit       string            `json:"current_commit"`
-	LastAction          string            `json:"last_action"`
-	LastStatus          string            `json:"last_status"`
-	LastDeployedAt      int64             `json:"last_deployed_at"`
-	Pipeline            int64             `json:"pipeline"`
-	TriggeredBy         string            `json:"triggered_by,omitempty"`
-	TriggeredAt         string            `json:"triggered_at,omitempty"`
-	Variables           map[string]string `json:"variables,omitempty"`
-	DeployVerified      bool              `json:"deploy_verified"`
-	DeployDegraded      bool              `json:"deploy_degraded,omitempty"`
-	DeployVerifyStatus  string            `json:"deploy_verify_status,omitempty"`
-	DeployVerifyMessage string            `json:"deploy_verify_message,omitempty"`
-	ActualCommit        string            `json:"actual_commit,omitempty"`
-	HealthURL           string            `json:"health_url,omitempty"`
-	LatestAction        string            `json:"latest_action,omitempty"`
-	LatestStatus        string            `json:"latest_status,omitempty"`
-	LatestBranch        string            `json:"latest_branch,omitempty"`
-	LatestCommit        string            `json:"latest_commit,omitempty"`
-	LatestAt            int64             `json:"latest_at,omitempty"`
-	LatestPipeline      int64             `json:"latest_pipeline,omitempty"`
-	LatestTriggeredBy   string            `json:"latest_triggered_by,omitempty"`
-	PreviousAction      string            `json:"previous_action,omitempty"`
-	PreviousBranch      string            `json:"previous_branch,omitempty"`
-	PreviousCommit      string            `json:"previous_commit,omitempty"`
-	PreviousDeployedAt  int64             `json:"previous_deployed_at,omitempty"`
-	PreviousPipeline    int64             `json:"previous_pipeline,omitempty"`
+	ID                  string               `json:"id"`
+	Name                string               `json:"name"`
+	Group               string               `json:"group"`
+	RepoID              int                  `json:"repo_id"`
+	RepoName            string               `json:"repo_name"`
+	ConfiguredBranch    string               `json:"configured_branch"`
+	CurrentBranch       string               `json:"current_branch"`
+	CurrentCommit       string               `json:"current_commit"`
+	LastAction          string               `json:"last_action"`
+	LastStatus          string               `json:"last_status"`
+	LastDeployedAt      int64                `json:"last_deployed_at"`
+	Pipeline            int64                `json:"pipeline"`
+	TriggeredBy         string               `json:"triggered_by,omitempty"`
+	TriggeredAt         string               `json:"triggered_at,omitempty"`
+	Variables           map[string]string    `json:"variables,omitempty"`
+	DeployVerified      bool                 `json:"deploy_verified"`
+	DeployDegraded      bool                 `json:"deploy_degraded,omitempty"`
+	DeployVerifyStatus  string               `json:"deploy_verify_status,omitempty"`
+	DeployVerifyMessage string               `json:"deploy_verify_message,omitempty"`
+	ActualCommit        string               `json:"actual_commit,omitempty"`
+	HealthURL           string               `json:"health_url,omitempty"`
+	LatestAction        string               `json:"latest_action,omitempty"`
+	LatestStatus        string               `json:"latest_status,omitempty"`
+	LatestBranch        string               `json:"latest_branch,omitempty"`
+	LatestCommit        string               `json:"latest_commit,omitempty"`
+	LatestAt            int64                `json:"latest_at,omitempty"`
+	LatestPipeline      int64                `json:"latest_pipeline,omitempty"`
+	LatestTriggeredBy   string               `json:"latest_triggered_by,omitempty"`
+	PreviousAction      string               `json:"previous_action,omitempty"`
+	PreviousBranch      string               `json:"previous_branch,omitempty"`
+	PreviousCommit      string               `json:"previous_commit,omitempty"`
+	PreviousDeployedAt  int64                `json:"previous_deployed_at,omitempty"`
+	PreviousPipeline    int64                `json:"previous_pipeline,omitempty"`
+	Revisions           []DeploymentRevision `json:"revisions,omitempty"`
+}
+
+type DeploymentRevision struct {
+	Pipeline    int64  `json:"pipeline"`
+	Branch      string `json:"branch"`
+	Commit      string `json:"commit"`
+	DeployedAt  int64  `json:"deployed_at"`
+	Action      string `json:"action"`
+	Verified    bool   `json:"verified"`
+	TriggeredBy string `json:"triggered_by,omitempty"`
+	TriggeredAt string `json:"triggered_at,omitempty"`
 }
 
 type StateResponse struct {
@@ -1210,7 +1222,9 @@ func (a *App) runTask(w http.ResponseWriter, r *http.Request) {
 		branch = "main"
 	}
 	variables := cloneMap(task.Variables)
+	declaredInputs := map[string]bool{}
 	for _, input := range task.Inputs {
+		declaredInputs[input.Name] = true
 		value := strings.TrimSpace(req.Inputs[input.Name])
 		if input.Required && value == "" {
 			http.Error(w, "missing input: "+input.Name, http.StatusBadRequest)
@@ -1218,6 +1232,17 @@ func (a *App) runTask(w http.ResponseWriter, r *http.Request) {
 		}
 		if value != "" {
 			variables[input.Name] = value
+		}
+	}
+	if isRollbackTask(task) {
+		for key, rawValue := range req.Inputs {
+			key = strings.TrimSpace(key)
+			if declaredInputs[key] || !isAllowedRollbackInput(key) {
+				continue
+			}
+			if value := strings.TrimSpace(rawValue); value != "" {
+				variables[key] = value
+			}
 		}
 	}
 	pipeline, err := a.createPipeline(task.RepoID, branch, variables)
@@ -2806,6 +2831,7 @@ func deploymentStatuses(tasks []Task, repos map[int]string, pipelines map[int][]
 			if status.ConfiguredBranch == "" {
 				status.ConfiguredBranch = current.ConfiguredBranch
 			}
+			status.Revisions = deploymentRevisions(verified, 12)
 		}
 		if len(verified) > 1 {
 			previous := verified[1]
@@ -2864,6 +2890,37 @@ func deploymentStatusFromPipeline(target deploymentTarget, repoID int, repoName 
 		TriggeredAt:      pipeline.PedpodTriggeredAt,
 		Variables:        sanitizeVariables(pipeline.Variables),
 	}
+}
+
+func deploymentRevisions(rows []DeploymentStatus, limit int) []DeploymentRevision {
+	if limit <= 0 || len(rows) == 0 {
+		return nil
+	}
+	revisions := make([]DeploymentRevision, 0, min(limit, len(rows)))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		commit := strings.TrimSpace(row.CurrentCommit)
+		pipeline := row.Pipeline
+		key := fmt.Sprintf("%d:%s:%s", pipeline, row.CurrentBranch, commit)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		revisions = append(revisions, DeploymentRevision{
+			Pipeline:    pipeline,
+			Branch:      row.CurrentBranch,
+			Commit:      commit,
+			DeployedAt:  row.LastDeployedAt,
+			Action:      row.LastAction,
+			Verified:    row.DeployVerified,
+			TriggeredBy: row.TriggeredBy,
+			TriggeredAt: row.TriggeredAt,
+		})
+		if len(revisions) >= limit {
+			break
+		}
+	}
+	return revisions
 }
 
 func deploymentTargetFromPipeline(repoID int, repoName string, pipeline Pipeline, taskByID map[string]Task, tasks []Task) (deploymentTarget, string, bool) {
@@ -3054,6 +3111,29 @@ func deploymentActionText(repoID int, repoName string, pipeline Pipeline) string
 		return repoName + " 部署"
 	}
 	return "部署"
+}
+
+func isRollbackTask(task Task) bool {
+	action := strings.ToLower(strings.TrimSpace(variableValue(task.Variables, "DEPLOY_ACTION")))
+	if action == "rollback" {
+		return true
+	}
+	if strings.TrimSpace(variableValue(task.Variables, "ROLLBACK_VERSION")) != "" {
+		return true
+	}
+	text := strings.ToLower(task.ID + " " + task.Title)
+	return strings.Contains(text, "rollback") || strings.Contains(text, "回退") || strings.Contains(text, "回滚")
+}
+
+func isAllowedRollbackInput(key string) bool {
+	switch strings.ToUpper(strings.TrimSpace(key)) {
+	case "ROLLBACK_VERSION", "ROLLBACK_COMMIT", "ROLLBACK_BRANCH", "ROLLBACK_PIPELINE", "ROLLBACK_PIPELINE_NUMBER":
+		return true
+	case "PEAPOD_ROLLBACK_COMMIT", "PEAPOD_ROLLBACK_BRANCH", "PEAPOD_ROLLBACK_PIPELINE":
+		return true
+	default:
+		return false
+	}
 }
 
 func isMaintenanceAction(action string) bool {

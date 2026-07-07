@@ -31,9 +31,9 @@ compose() {
 }
 
 case "$DEPLOY_ACTION" in
-  deploy|restart|status) ;;
+  deploy|rollback|restart|status) ;;
   *)
-    echo "unsupported DEPLOY_ACTION=$DEPLOY_ACTION (expected deploy, restart or status)" >&2
+    echo "unsupported DEPLOY_ACTION=$DEPLOY_ACTION (expected deploy, rollback, restart or status)" >&2
     exit 1
     ;;
 esac
@@ -52,6 +52,18 @@ if [ "$DEPLOY_ACTION" = "restart" ]; then
   host_healthcheck 30
   exit 0
 fi
+
+if [ "$DEPLOY_ACTION" = "rollback" ]; then
+  rollback_target="${ROLLBACK_COMMIT:-${ROLLBACK_VERSION:-}}"
+  if [ -z "$rollback_target" ]; then
+    echo "ROLLBACK_COMMIT or ROLLBACK_VERSION is required for rollback" >&2
+    exit 1
+  fi
+  git rev-parse --verify "$rollback_target^{commit}" >/dev/null
+  git checkout --detach "$rollback_target"
+fi
+
+deployed_sha="$(git rev-parse HEAD 2>/dev/null || printf '%s' "${CI_COMMIT_SHA:-unknown}")"
 
 docker compose version >/dev/null
 mkdir -p "$DEPLOY_DIR"
@@ -94,5 +106,5 @@ compose build "$COMPOSE_SERVICE"
 compose up -d --no-deps "$COMPOSE_SERVICE"
 host_healthcheck 30
 
-printf '%s\n' "${CI_COMMIT_SHA:-unknown}" > "$DEPLOY_DIR/.deploy/current-source-sha"
-printf '%s deploy %s pipeline=%s\n' "$(date -Is)" "${CI_COMMIT_SHA:-unknown}" "${CI_PIPELINE_NUMBER:-manual}" >> "$DEPLOY_DIR/.deploy/deploy-history.log"
+printf '%s\n' "$deployed_sha" > "$DEPLOY_DIR/.deploy/current-source-sha"
+printf '%s %s %s pipeline=%s rollback_target=%s\n' "$(date -Is)" "$DEPLOY_ACTION" "$deployed_sha" "${CI_PIPELINE_NUMBER:-manual}" "${rollback_target:-}" >> "$DEPLOY_DIR/.deploy/deploy-history.log"
