@@ -336,7 +336,6 @@ export function DeployPage({
   onInspect: (row: Pipeline) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [objectFilter, setObjectFilter] = useState<DeployObjectFilter>("all");
   const objects = useMemo(() => buildDeployObjects(state, rows, tasks, pipelines, nowMs), [state, rows, tasks, pipelines, nowMs]);
   const [selectedID, setSelectedID] = useState("");
   useEffect(() => {
@@ -348,7 +347,7 @@ export function DeployPage({
       setSelectedID("");
     }
   }, [objects, selectedID]);
-  const filteredObjects = useMemo(() => filterDeployObjects(objects, query, objectFilter), [objects, query, objectFilter]);
+  const filteredObjects = useMemo(() => filterDeployObjects(objects, query), [objects, query]);
   const verifiedCount = rows.filter((row) => row.deploy_verified).length;
   const attentionCount = objects.filter((item) => item.attention).length;
   const runningCount = objects.filter((item) => item.pipelines.some((row) => ["running", "pending"].includes(row.status))).length;
@@ -374,7 +373,6 @@ export function DeployPage({
           objects={filteredObjects}
           allObjects={objects}
           query={query}
-          filter={objectFilter}
           selectedID={selectedID}
           state={state}
           woodpecker={woodpecker}
@@ -382,7 +380,6 @@ export function DeployPage({
           currentUser={currentUser}
           triggeringTaskIds={triggeringTaskIds}
           onQueryChange={setQuery}
-          onFilterChange={setObjectFilter}
           onSelect={setSelectedID}
           onRun={onRun}
           onCancel={onCancel}
@@ -392,8 +389,6 @@ export function DeployPage({
     </Space>
   );
 }
-
-type DeployObjectFilter = "all" | "attention" | "running" | "deployment" | "action";
 
 type DeployObject = {
   id: string;
@@ -418,7 +413,6 @@ function DeployObjectConsole({
   objects,
   allObjects,
   query,
-  filter,
   selectedID,
   state,
   woodpecker,
@@ -426,7 +420,6 @@ function DeployObjectConsole({
   currentUser,
   triggeringTaskIds,
   onQueryChange,
-  onFilterChange,
   onSelect,
   onRun,
   onCancel,
@@ -435,7 +428,6 @@ function DeployObjectConsole({
   objects: DeployObject[];
   allObjects: DeployObject[];
   query: string;
-  filter: DeployObjectFilter;
   selectedID: string;
   state: StateResponse;
   woodpecker: string;
@@ -443,17 +435,12 @@ function DeployObjectConsole({
   currentUser: User;
   triggeringTaskIds: string[];
   onQueryChange: (value: string) => void;
-  onFilterChange: (value: DeployObjectFilter) => void;
   onSelect: (id: string) => void;
   onRun: (task: Task) => void;
   onCancel: (row: Pipeline) => void;
   onInspect: (row: Pipeline) => void;
 }) {
   const triggeringTaskIDSet = useMemo(() => new Set(triggeringTaskIds), [triggeringTaskIds]);
-  const running = allObjects.filter((item) => item.pipelines.some((row) => ["running", "pending"].includes(row.status))).length;
-  const attention = allObjects.filter((item) => item.attention).length;
-  const deployments = allObjects.filter((item) => item.kind === "deployment").length;
-  const actions = allObjects.filter((item) => item.kind === "action").length;
   const selected = allObjects.find((item) => item.id === selectedID) || null;
 
   return (
@@ -473,19 +460,7 @@ function DeployObjectConsole({
         />
       ) : (
         <>
-          <div className="deploy-object-toolbar">
-            <Segmented
-              size="small"
-              value={filter}
-              onChange={(value) => onFilterChange(value as DeployObjectFilter)}
-              options={[
-                { label: `全部 ${allObjects.length}`, value: "all" },
-                { label: `关注 ${attention}`, value: "attention" },
-                { label: `运行 ${running}`, value: "running" },
-                { label: `项目 ${deployments}`, value: "deployment" },
-                { label: `维护 ${actions}`, value: "action" }
-              ]}
-            />
+          <div className="deploy-object-searchbar">
             <Input
               allowClear
               prefix={<Search size={15} />}
@@ -5170,13 +5145,9 @@ function buildDeployObjects(state: StateResponse, rows: DeploymentStatus[], task
   });
 }
 
-function filterDeployObjects(objects: DeployObject[], query: string, filter: DeployObjectFilter): DeployObject[] {
+function filterDeployObjects(objects: DeployObject[], query: string): DeployObject[] {
   const q = query.trim().toLowerCase();
   return objects.filter((item) => {
-    if (filter === "attention" && !item.attention) return false;
-    if (filter === "running" && !item.pipelines.some((row) => ["running", "pending"].includes(row.status))) return false;
-    if (filter === "deployment" && item.kind !== "deployment") return false;
-    if (filter === "action" && item.kind !== "action") return false;
     if (q && !item.searchText.includes(q)) return false;
     return true;
   });

@@ -654,15 +654,14 @@ body {
   border-radius: 0;
 }
 
-.deploy-object-toolbar {
-  display: grid;
-  grid-template-columns: minmax(420px, auto) minmax(260px, 420px);
-  gap: 10px;
-  align-items: center;
+.deploy-object-searchbar {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
-.deploy-object-toolbar .ant-segmented {
-  justify-self: start;
+.deploy-object-searchbar .ant-input-affix-wrapper {
+  width: min(520px, 100%);
 }
 
 .deploy-object-index-card .ant-card-body {
@@ -1871,21 +1870,12 @@ body {
     display: none;
   }
 
-  .deploy-object-toolbar {
-    grid-template-columns: 1fr;
+  .deploy-object-searchbar {
+    justify-content: stretch;
   }
 
-  .deploy-object-toolbar .ant-segmented {
+  .deploy-object-searchbar .ant-input-affix-wrapper {
     width: 100%;
-  }
-
-  .deploy-object-toolbar .ant-segmented-group {
-    width: 100%;
-  }
-
-  .deploy-object-toolbar .ant-segmented-item {
-    flex: 1 1 0;
-    min-width: 0;
   }
 
   .deploy-object-index-card {
