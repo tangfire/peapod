@@ -1237,6 +1237,24 @@ func (a *App) parseSession(token string) (sessionPayload, bool) {
 	return payload, true
 }
 
+// buildAuditRecord constructs an audit record for the current user with the
+// common fields pre-filled. Callers override Status, Error, or Pipeline as needed.
+func buildAuditRecord(user AuthUser, r *http.Request, taskID, taskTitle string, repoID int, branch string, pipeline int64, variables map[string]string) AuditRecord {
+	return AuditRecord{
+		Time:      time.Now().Format(time.RFC3339),
+		UserID:    user.ID,
+		Username:  user.Username,
+		RemoteIP:  remoteIP(r),
+		TaskID:    taskID,
+		TaskTitle: taskTitle,
+		RepoID:    repoID,
+		Branch:    branch,
+		Pipeline:  pipeline,
+		Variables: variables,
+		Status:    "ok",
+	}
+}
+
 func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	user := authUserFromRequest(r)
 	pipelines := map[int][]Pipeline{}
@@ -1367,18 +1385,7 @@ func (a *App) runTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pipeline, err := a.createPipeline(task.RepoID, branch, variables)
-	record := AuditRecord{
-		Time:      time.Now().Format(time.RFC3339),
-		UserID:    user.ID,
-		Username:  user.Username,
-		RemoteIP:  remoteIP(r),
-		TaskID:    task.ID,
-		TaskTitle: task.Title,
-		RepoID:    task.RepoID,
-		Branch:    branch,
-		Variables: variables,
-		Status:    "ok",
-	}
+	record := buildAuditRecord(user, r, task.ID, task.Title, task.RepoID, branch, 0, variables)
 	if err != nil {
 		record.Status = "error"
 		record.Error = err.Error()
@@ -1437,18 +1444,7 @@ func (a *App) customRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pipeline, err := a.createPipeline(req.RepoID, branch, variables)
-	record := AuditRecord{
-		Time:      time.Now().Format(time.RFC3339),
-		UserID:    user.ID,
-		Username:  user.Username,
-		RemoteIP:  remoteIP(r),
-		TaskID:    "custom-run",
-		TaskTitle: "自定义部署",
-		RepoID:    req.RepoID,
-		Branch:    branch,
-		Variables: variables,
-		Status:    "ok",
-	}
+	record := buildAuditRecord(user, r, "custom-run", "自定义部署", req.RepoID, branch, 0, variables)
 	if err != nil {
 		record.Status = "error"
 		record.Error = err.Error()
@@ -1577,16 +1573,7 @@ func (a *App) doctorRun(w http.ResponseWriter, r *http.Request) {
 	logStrategy := a.logStrategyStatus()
 	checklist := a.setupChecklist(hosts, verification, logStrategy)
 	doctor := a.doctorSummary(time.Now(), checklist)
-	_ = a.writeAudit(AuditRecord{
-		Time:      time.Now().Format(time.RFC3339),
-		UserID:    user.ID,
-		Username:  user.Username,
-		RemoteIP:  remoteIP(r),
-		TaskID:    "doctor-run",
-		TaskTitle: "运行 Pedpod 体检",
-		Variables: map[string]string{"readiness": doctor.Readiness},
-		Status:    "ok",
-	})
+	_ = a.writeAudit(buildAuditRecord(user, r, "doctor-run", "运行 Pedpod 体检", 0, "", 0, map[string]string{"readiness": doctor.Readiness}))
 	writeJSON(w, doctor)
 }
 
@@ -1640,22 +1627,11 @@ func (a *App) templateAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	_ = a.writeAudit(AuditRecord{
-		Time:      time.Now().Format(time.RFC3339),
-		UserID:    user.ID,
-		Username:  user.Username,
-		RemoteIP:  remoteIP(r),
-		TaskID:    "template-apply",
-		TaskTitle: "套用任务模板",
-		RepoID:    task.RepoID,
-		Branch:    task.Branch,
-		Variables: map[string]string{
-			"template": template.ID,
-			"task":     task.ID,
-			"project":  variableValue(task.Variables, "PEAPOD_PROJECT_ID"),
-		},
-		Status: "ok",
-	})
+	_ = a.writeAudit(buildAuditRecord(user, r, "template-apply", "套用任务模板", task.RepoID, task.Branch, 0, map[string]string{
+		"template": template.ID,
+		"task":     task.ID,
+		"project":  variableValue(task.Variables, "PEAPOD_PROJECT_ID"),
+	}))
 	writeJSON(w, TemplateApplyResponse{Task: task, Config: cfg})
 }
 
@@ -1720,17 +1696,7 @@ func (a *App) woodpeckerRepoAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		_ = a.writeAudit(AuditRecord{
-			Time:      time.Now().Format(time.RFC3339),
-			UserID:    user.ID,
-			Username:  user.Username,
-			RemoteIP:  remoteIP(r),
-			TaskID:    "woodpecker-repo-activate",
-			TaskTitle: "启用 Woodpecker 仓库",
-			RepoID:    repo.ID,
-			Variables: map[string]string{"repo": repo.FullName, "forge_remote_id": repo.ForgeRemoteID},
-			Status:    "ok",
-		})
+		_ = a.writeAudit(buildAuditRecord(user, r, "woodpecker-repo-activate", "启用 Woodpecker 仓库", repo.ID, "", 0, map[string]string{"repo": repo.FullName, "forge_remote_id": repo.ForgeRemoteID}))
 		writeJSON(w, map[string]any{"repo": repo})
 	case "save":
 		if r.Method != http.MethodPost {
@@ -1746,17 +1712,7 @@ func (a *App) woodpeckerRepoAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		_ = a.writeAudit(AuditRecord{
-			Time:      time.Now().Format(time.RFC3339),
-			UserID:    user.ID,
-			Username:  user.Username,
-			RemoteIP:  remoteIP(r),
-			TaskID:    "woodpecker-repo-save",
-			TaskTitle: "保存 Pedpod 仓库映射",
-			RepoID:    req.RepoID,
-			Variables: map[string]string{"repo": strings.TrimSpace(req.RepoName)},
-			Status:    "ok",
-		})
+		_ = a.writeAudit(buildAuditRecord(user, r, "woodpecker-repo-save", "保存 Pedpod 仓库映射", req.RepoID, "", 0, map[string]string{"repo": strings.TrimSpace(req.RepoName)}))
 		writeJSON(w, WoodpeckerReposResponse{Repos: []WoodpeckerRepo{}, Configured: a.configuredRepos()})
 	default:
 		http.NotFound(w, r)
@@ -2000,18 +1956,7 @@ func (a *App) pipelineAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad pipeline number", http.StatusBadRequest)
 		return
 	}
-	record := AuditRecord{
-		Time:      time.Now().Format(time.RFC3339),
-		UserID:    user.ID,
-		Username:  user.Username,
-		RemoteIP:  remoteIP(r),
-		TaskID:    "cancel-pipeline",
-		TaskTitle: "取消流水线",
-		RepoID:    repoID,
-		Pipeline:  number,
-		Variables: map[string]string{},
-		Status:    "ok",
-	}
+	record := buildAuditRecord(user, r, "cancel-pipeline", "取消流水线", repoID, "", number, map[string]string{})
 	if err := a.cancelPipeline(repoID, number); err != nil {
 		record.Status = "error"
 		record.Error = err.Error()
