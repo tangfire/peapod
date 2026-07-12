@@ -72,8 +72,16 @@ type MonitoringHost struct {
 	UptimeSeconds    uint64  `json:"uptime_seconds,omitempty"`
 	Uptime           string  `json:"uptime,omitempty"`
 	Message          string  `json:"message,omitempty"`
-	CleanupTaskID    string  `json:"cleanup_task_id,omitempty"`
-	CheckedAt        string  `json:"checked_at,omitempty"`
+	CleanupTaskID          string          `json:"cleanup_task_id,omitempty"`
+	DockerReclaimableBytes uint64          `json:"docker_reclaimable_bytes,omitempty"`
+	DiskBreakdown          []DiskUsageItem `json:"disk_breakdown,omitempty"`
+	CheckedAt              string          `json:"checked_at,omitempty"`
+}
+
+type DiskUsageItem struct {
+	Path  string `json:"path"`
+	Size  string `json:"size"`
+	Bytes uint64 `json:"bytes"`
 }
 
 type MonitoringContainer struct {
@@ -89,12 +97,14 @@ type MonitoringContainer struct {
 }
 
 type MonitoringAlert struct {
-	Level    string `json:"level"`
-	HostID   string `json:"host_id,omitempty"`
-	HostName string `json:"host_name,omitempty"`
-	Metric   string `json:"metric,omitempty"`
-	Title    string `json:"title"`
-	Message  string `json:"message"`
+	Level       string `json:"level"`
+	HostID      string `json:"host_id,omitempty"`
+	HostName    string `json:"host_name,omitempty"`
+	Metric      string `json:"metric,omitempty"`
+	Title       string `json:"title"`
+	Message     string `json:"message"`
+	ActionURL   string `json:"action_url,omitempty"`
+	ActionLabel string `json:"action_label,omitempty"`
 }
 
 type beszelAuthResponse struct {
@@ -559,6 +569,10 @@ printf "__PS__\n"
 docker ps --format '{{.Names}}	{{.Status}}' 2>/dev/null
 printf "__STATS__\n"
 docker stats --no-stream --format '{{.Name}}	{{.CPUPerc}}	{{.MemUsage}}' 2>/dev/null
+printf "__DOCKER_DF__\n"
+docker system df 2>/dev/null
+printf "__DU__\n"
+du -sh /var/lib/docker /opt /tmp /var/log /root 2>/dev/null
 exit 0
 `
 
@@ -635,6 +649,23 @@ func parseSSHMonitorOutput(output string, cfg MonitorHostConfig) (MonitoringHost
 					MemoryUsage:   parts[2],
 					MemoryPercent: parseDockerMemoryPercent(parts[2]),
 				}
+			}
+		case "__DOCKER_DF__":
+			if strings.HasPrefix(line, "Build Cache") {
+				fields := strings.Fields(line)
+				if len(fields) >= 4 {
+					host.DockerReclaimableBytes = uint64(parseHumanBytes(fields[3]))
+				}
+			}
+		case "__DU__":
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				item := DiskUsageItem{
+					Size: fields[0],
+					Path: fields[1],
+				}
+				item.Bytes = uint64(parseHumanBytes(fields[0]))
+				host.DiskBreakdown = append(host.DiskBreakdown, item)
 			}
 		}
 	}
@@ -819,6 +850,12 @@ func mergeSSHHost(host *MonitoringHost, sshHost MonitoringHost) {
 	if host.NetworkBytes == 0 {
 		host.NetworkBytes = sshHost.NetworkBytes
 	}
+	if host.DockerReclaimableBytes == 0 {
+		host.DockerReclaimableBytes = sshHost.DockerReclaimableBytes
+	}
+	if len(host.DiskBreakdown) == 0 {
+		host.DiskBreakdown = sshHost.DiskBreakdown
+	}
 	if host.Source != "beszel" {
 		host.Source = "ssh_fallback"
 		host.Status = sshHost.Status
@@ -848,15 +885,19 @@ func buildMonitoringAlerts(hosts []MonitoringHost, containers []MonitoringContai
 	warnMemory := float64(maxInt(cfg.MonitorWarnMemory, 80))
 	for _, host := range hosts {
 		if host.DiskPercent >= critDisk {
-			alerts = append(alerts, MonitoringAlert{Level: "critical", HostID: host.ID, HostName: host.Name, Metric: "disk", Title: "磁盘接近满载", Message: fmt.Sprintf("%s 磁盘 %.1f%%，需要尽快清理", host.Name, host.DiskPercent)})
+			alerts = append(alerts, MonitoringAlert{Level: "critical", HostID: host.ID, HostName: host.Name, Metric: "disk", Title: "磁盘接近满载", Message: fmt.Sprintf("%s 磁盘 %.1f%%，需要尽快清理", host.Name, host.DiskPercent), ActionLabel: "诊断磁盘", ActionURL: "/monitoring"})
 		} else if host.DiskPercent >= warnDisk {
-			alerts = append(alerts, MonitoringAlert{Level: "warning", HostID: host.ID, HostName: host.Name, Metric: "disk", Title: "磁盘偏高", Message: fmt.Sprintf("%s 磁盘 %.1f%%，建议关注", host.Name, host.DiskPercent)})
+			alerts = append(alerts, MonitoringAlert{Level: "warning", HostID: host.ID, HostName: host.Name, Metric: "disk", Title: "磁盘偏高", Message: fmt.Sprintf("%s 磁盘 %.1f%%，建议关注", host.Name, host.DiskPercent), ActionLabel: "诊断磁盘", ActionURL: "/monitoring"})
 		}
 		if host.MemoryPercent >= warnMemory {
 			alerts = append(alerts, MonitoringAlert{Level: "warning", HostID: host.ID, HostName: host.Name, Metric: "memory", Title: "内存偏高", Message: fmt.Sprintf("%s 内存 %.1f%%", host.Name, host.MemoryPercent)})
 		}
 		if host.Status != "" && host.Status != "ok" && host.Status != "up" && host.Status != "online" && host.Status != "unknown" {
 			alerts = append(alerts, MonitoringAlert{Level: "warning", HostID: host.ID, HostName: host.Name, Metric: "host", Title: "机器状态异常", Message: fmt.Sprintf("%s 状态：%s", host.Name, host.Status)})
+		}
+		if host.DockerReclaimableBytes > 10*1024*1024*1024 {
+			reclaimGB := host.DockerReclaimableBytes / (1024 * 1024 * 1024)
+			alerts = append(alerts, MonitoringAlert{Level: "info", HostID: host.ID, HostName: host.Name, Metric: "disk", Title: "Docker 可回收空间较大", Message: fmt.Sprintf("%s 可回收约 %d GB Docker 空间", host.Name, reclaimGB), ActionLabel: "诊断磁盘", ActionURL: "/monitoring"})
 		}
 	}
 	for _, row := range containers {

@@ -196,6 +196,8 @@ export type MonitoringHost = {
   uptime?: string;
   message?: string;
   cleanup_task_id?: string;
+  docker_reclaimable_bytes?: number;
+  disk_breakdown?: DiskUsageItem[];
   checked_at?: string;
 };
 
@@ -218,6 +220,8 @@ export type MonitoringAlert = {
   metric?: string;
   title: string;
   message: string;
+  action_url?: string;
+  action_label?: string;
 };
 
 export type ExternalLinkConfig = {
@@ -226,6 +230,64 @@ export type ExternalLinkConfig = {
   url: string;
   description?: string;
   group?: string;
+};
+
+export type DiskUsageItem = {
+  path: string;
+  size: string;
+  bytes: number;
+};
+
+export type DiskDiagnosisResponse = {
+  filesystems: DiskFilesystemInfo[];
+  docker: DockerDiskInfo;
+  top_dirs: DiskUsageItem[];
+  docker_ok: boolean;
+  checked_at: string;
+};
+
+export type DiskFilesystemInfo = {
+  mount: string;
+  total: string;
+  used: string;
+  percent: number;
+};
+
+export type DockerDiskInfo = {
+  images_total: number;
+  images_active: number;
+  images_size: string;
+  images_reclaimable: string;
+  build_cache_size: string;
+  build_reclaimable: string;
+  volumes_size: string;
+  volumes_reclaimable: string;
+};
+
+export type DiskCleanupLevel = {
+  level: string;
+  description: string;
+  reclaimable: string;
+  command: string;
+  risk: string;
+};
+
+export type DiskCleanupPreviewResponse = {
+  levels: DiskCleanupLevel[];
+  recommendation: string;
+  docker_ok: boolean;
+};
+
+export type DiskCleanupRequest = {
+  level: string;
+  confirm: string;
+};
+
+export type DiskCleanupResponse = {
+  ok: boolean;
+  level: string;
+  reclaimed: string;
+  details: string;
 };
 
 export type MonitorHostConfig = {

@@ -57,3 +57,20 @@ function parseAPIErrorPayload(text: string): ApiErrorPayload {
   }
   return { error: text };
 }
+
+import type { DiskDiagnosisResponse, DiskCleanupPreviewResponse, DiskCleanupRequest, DiskCleanupResponse } from "./types";
+
+export async function fetchDiskDiagnosis(): Promise<DiskDiagnosisResponse> {
+  return api<DiskDiagnosisResponse>("/api/system/disk-diagnosis");
+}
+
+export async function fetchDiskCleanupPreview(): Promise<DiskCleanupPreviewResponse> {
+  return api<DiskCleanupPreviewResponse>("/api/system/disk-cleanup-preview");
+}
+
+export async function executeDiskCleanup(req: DiskCleanupRequest): Promise<DiskCleanupResponse> {
+  return api<DiskCleanupResponse>("/api/system/disk-cleanup", {
+    method: "POST",
+    body: JSON.stringify(req)
+  });
+}

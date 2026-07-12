@@ -15,10 +15,12 @@ import {
   List,
   Popconfirm,
   Progress,
+  Radio,
   Row,
   Segmented,
   Select,
   Space,
+  Spin,
   Table,
   Tabs,
   Tag,
@@ -55,7 +57,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ApiError, api, errorText } from "./api";
+import { ApiError, api, errorText, fetchDiskDiagnosis, fetchDiskCleanupPreview, executeDiskCleanup } from "./api";
 import { PRODUCT_NAME, PRODUCT_REPO_NAME, PRODUCT_REPO_OWNER } from "./brand";
 import type {
   AuditRecord,
@@ -86,7 +88,11 @@ import type {
   TemplateApplyResponse,
   User,
   WoodpeckerRepo,
-  WoodpeckerReposResponse
+  WoodpeckerReposResponse,
+  DiskDiagnosisResponse,
+  DiskCleanupPreviewResponse,
+  DiskCleanupRequest,
+  DiskCleanupResponse
 } from "./types";
 
 type TaskRunHandler = (task: Task, presetInputs?: Record<string, string>) => void;
@@ -2050,6 +2056,7 @@ export function MonitoringView({
             {links.dozzle && <Button href={links.dozzle} target="_blank" icon={<ExternalLink size={15} />}>Dozzle</Button>}
             {links.grafana && <Button href={links.grafana} target="_blank" icon={<ExternalLink size={15} />}>Grafana</Button>}
             <Button icon={<RefreshCw size={16} />} loading={loading} onClick={onRefresh}>刷新</Button>
+            <DiskDiagnosisButton />
           </Space>
         }
       />
@@ -2126,6 +2133,11 @@ function MonitoringResourceOverview({
             <div className="monitor-alert-chip" key={`${alert.host_id || alert.host_name || "alert"}-${alert.metric || index}`}>
               <Tag color={monitoringAlertColor(alert.level)}>{monitoringAlertText(alert.level)}</Tag>
               <Text type={alert.level === "critical" ? "danger" : "secondary"}>{alert.message}</Text>
+              {alert.action_url && alert.action_label && (
+                <Button type="link" size="small" onClick={() => window.location.hash = alert.action_url!}>
+                  {alert.action_label}
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -2201,7 +2213,12 @@ function MonitoringSystemTable({
       title: <MonitoringColumnTitle icon={<HardDrive size={15} />} label="磁盘" />,
       width: 124,
       sorter: (a, b) => (a.disk_percent || 0) - (b.disk_percent || 0),
-      render: (_, row) => <CompactMetric value={row.disk_percent || 0} />
+      render: (_, row) => {
+        const diskValue = row.disk_percent || 0;
+        const reclaimable = row.docker_reclaimable_bytes;
+        const tip = reclaimable ? `磁盘 ${diskValue}% · Docker 可回收 ${formatBytes(reclaimable)}` : `磁盘 ${diskValue}%`;
+        return <Tooltip title={tip}><CompactMetric value={diskValue} /></Tooltip>;
+      }
     },
     {
       title: <MonitoringColumnTitle icon={<Gauge size={15} />} label="负载" />,
@@ -2331,6 +2348,123 @@ function MonitoringHostActions({
         </span>
       </Tooltip>
     </Space>
+  );
+}
+
+function DiskDiagnosisButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button icon={<HardDrive size={16} />} onClick={() => setOpen(true)}>磁盘诊断</Button>
+      <DiskDiagnosisDrawer open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+function DiskDiagnosisDrawer({
+  open,
+  onClose
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<DiskDiagnosisResponse | null>(null);
+  const [preview, setPreview] = useState<DiskCleanupPreviewResponse | null>(null);
+  const [cleanupLevel, setCleanupLevel] = useState<string>("safe");
+  const [confirmText, setConfirmText] = useState("");
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<string>("");
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setCleanupResult("");
+    Promise.all([
+      fetchDiskDiagnosis().then(setDiagnosis),
+      fetchDiskCleanupPreview().then(setPreview)
+    ]).finally(() => setLoading(false));
+  }, [open]);
+
+  const doCleanup = async () => {
+    setCleaning(true);
+    setCleanupResult("");
+    try {
+      const result = await executeDiskCleanup({ level: cleanupLevel, confirm: confirmText });
+      setCleanupResult(`✅ 清理完成：回收 ${result.reclaimed} · ${result.details}`);
+      setConfirmText("");
+      const [newDiagnosis, newPreview] = await Promise.all([fetchDiskDiagnosis(), fetchDiskCleanupPreview()]);
+      setDiagnosis(newDiagnosis);
+      setPreview(newPreview);
+    } catch (err: unknown) {
+      setCleanupResult(`❌ 清理失败：${errorText(err)}`);
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  const fs = diagnosis?.filesystems?.[0];
+  const docker = diagnosis?.docker;
+  const topDirs = diagnosis?.top_dirs || [];
+  const levels = preview?.levels || [];
+
+  return (
+    <Drawer title="磁盘诊断" open={open} onClose={onClose} width={560} destroyOnClose>
+      <Spin spinning={loading}>
+        <Space direction="vertical" size={16} className="side-stack">
+          {fs && (
+            <Card size="small" title="文件系统">
+              <Descriptions size="small" column={1}>
+                <Descriptions.Item label="挂载点">{fs.mount}</Descriptions.Item>
+                <Descriptions.Item label="总容量">{fs.total}</Descriptions.Item>
+                <Descriptions.Item label="已用">{fs.used}</Descriptions.Item>
+                <Descriptions.Item label="使用率">
+                  <Progress percent={fs.percent} size="small" status={fs.percent >= 90 ? "exception" : fs.percent >= 80 ? "active" : "normal"} />
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          )}
+          {docker && diagnosis?.docker_ok && (
+            <Card size="small" title="Docker 空间">
+              <Descriptions size="small" column={1}>
+                <Descriptions.Item label="镜像">{docker.images_total} 个（{docker.images_size}，可回收 {docker.images_reclaimable}）</Descriptions.Item>
+                <Descriptions.Item label="构建缓存">{docker.build_cache_size}（可回收 {docker.build_reclaimable}）</Descriptions.Item>
+                <Descriptions.Item label="卷">{docker.volumes_size}（可回收 {docker.volumes_reclaimable}）</Descriptions.Item>
+              </Descriptions>
+            </Card>
+          )}
+          {topDirs.length > 0 && (
+            <Card size="small" title="大目录排行">
+              <List size="small" dataSource={topDirs} renderItem={(item) => <List.Item><Text code>{item.path}</Text><Text>{item.size}</Text></List.Item>} />
+            </Card>
+          )}
+          {levels.length > 0 && (
+            <Card size="small" title="分级清理">
+              <Radio.Group value={cleanupLevel} onChange={(e) => setCleanupLevel(e.target.value)}>
+                <Space direction="vertical">
+                  {levels.map((level) => (
+                    <Radio key={level.level} value={level.level}>
+                      <Space direction="vertical" size={2}>
+                        <Text strong>{level.description}</Text>
+                        <Text type="secondary">可回收 {level.reclaimable} · {level.risk}</Text>
+                      </Space>
+                    </Radio>
+                  ))}
+                </Space>
+              </Radio.Group>
+              <div style={{ marginTop: 12 }}>
+                <Input.Password placeholder="输入 CLEAN 确认清理" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} style={{ width: 240 }} />
+                <Button type="primary" danger loading={cleaning} disabled={confirmText !== "CLEAN"} onClick={doCleanup} style={{ marginLeft: 8 }}>执行清理</Button>
+              </div>
+              {cleanupResult && <Alert style={{ marginTop: 12 }} type={cleanupResult.startsWith("✅") ? "success" : "error"} message={cleanupResult} />}
+            </Card>
+          )}
+          {!diagnosis?.docker_ok && (
+            <Alert type="info" showIcon message="Docker 不可用" description="当前环境无法访问 Docker 守护进程，诊断和清理功能受限。请通过 SSH 监控查看磁盘状态。" />
+          )}
+        </Space>
+      </Spin>
+    </Drawer>
   );
 }
 

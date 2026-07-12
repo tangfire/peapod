@@ -524,6 +524,58 @@ type AuditListResponse struct {
 	Records []AuditRecord `json:"records"`
 }
 
+type DiskDiagnosisResponse struct {
+	Filesystems []DiskFilesystemInfo `json:"filesystems"`
+	Docker      DockerDiskInfo       `json:"docker"`
+	TopDirs     []DiskUsageItem      `json:"top_dirs"`
+	DockerOK    bool                 `json:"docker_ok"`
+	CheckedAt   string               `json:"checked_at"`
+}
+
+type DiskFilesystemInfo struct {
+	Mount   string `json:"mount"`
+	Total   string `json:"total"`
+	Used    string `json:"used"`
+	Percent int    `json:"percent"`
+}
+
+type DockerDiskInfo struct {
+	ImagesTotal        int    `json:"images_total"`
+	ImagesActive       int    `json:"images_active"`
+	ImagesSize         string `json:"images_size"`
+	ImagesReclaimable  string `json:"images_reclaimable"`
+	BuildCacheSize     string `json:"build_cache_size"`
+	BuildReclaimable   string `json:"build_reclaimable"`
+	VolumesSize        string `json:"volumes_size"`
+	VolumesReclaimable string `json:"volumes_reclaimable"`
+}
+
+type DiskCleanupLevel struct {
+	Level       string `json:"level"`
+	Description string `json:"description"`
+	Reclaimable string `json:"reclaimable"`
+	Command     string `json:"command"`
+	Risk        string `json:"risk"`
+}
+
+type DiskCleanupPreviewResponse struct {
+	Levels         []DiskCleanupLevel `json:"levels"`
+	Recommendation string             `json:"recommendation"`
+	DockerOK       bool               `json:"docker_ok"`
+}
+
+type DiskCleanupRequest struct {
+	Level   string `json:"level"`
+	Confirm string `json:"confirm"`
+}
+
+type DiskCleanupResponse struct {
+	OK        bool   `json:"ok"`
+	Level     string `json:"level"`
+	Reclaimed string `json:"reclaimed"`
+	Details   string `json:"details"`
+}
+
 var repos = map[int]string{}
 
 var tasks = []Task{}
@@ -582,6 +634,9 @@ func main() {
 	mux.HandleFunc("/api/custom-run", app.auth(app.customRun))
 	mux.HandleFunc("/api/pipelines/", app.auth(app.pipelineAction))
 	mux.HandleFunc("/api/audit", app.auth(app.audit))
+	mux.HandleFunc("/api/system/disk-diagnosis", app.auth(app.diskDiagnosis))
+	mux.HandleFunc("/api/system/disk-cleanup-preview", app.auth(app.diskCleanupPreview))
+	mux.HandleFunc("/api/system/disk-cleanup", app.auth(app.diskCleanup))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"peapod"}`))
@@ -2635,6 +2690,193 @@ func (a *App) audit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, AuditListResponse{Records: records})
 }
 
+func (a *App) diskDiagnosis(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	resp := DiskDiagnosisResponse{CheckedAt: time.Now().Format(time.RFC3339)}
+	dfCtx, dfCancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer dfCancel()
+	if output, err := exec.CommandContext(dfCtx, "df", "-h", "--output=target,size,used,pcent", "/").CombinedOutput(); err == nil {
+		for i, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			if i == 0 || strings.TrimSpace(line) == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) >= 4 {
+				percent := 0
+				fmt.Sscanf(strings.TrimSuffix(fields[3], "%"), "%d", &percent)
+				resp.Filesystems = append(resp.Filesystems, DiskFilesystemInfo{Mount: fields[0], Total: fields[1], Used: fields[2], Percent: percent})
+			}
+		}
+	}
+	dockerCtx, dockerCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer dockerCancel()
+	if output, err := exec.CommandContext(dockerCtx, "docker", "system", "df", "--format", "{{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}").CombinedOutput(); err == nil {
+		resp.DockerOK = true
+		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 4 {
+				continue
+			}
+			switch fields[0] {
+			case "Images":
+				resp.Docker.ImagesTotal, _ = strconv.Atoi(fields[1])
+				resp.Docker.ImagesSize = fields[2]
+				resp.Docker.ImagesReclaimable = fields[3]
+			case "BuildCache", "Build Cache":
+				resp.Docker.BuildCacheSize = fields[2]
+				resp.Docker.BuildReclaimable = fields[3]
+			case "LocalVolumes", "Local Volumes":
+				resp.Docker.VolumesSize = fields[2]
+				resp.Docker.VolumesReclaimable = fields[3]
+			}
+		}
+	}
+	duCtx, duCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer duCancel()
+	if output, err := exec.CommandContext(duCtx, "du", "-sh", "/var/lib/docker", "/opt", "/tmp", "/var/log", "/root").CombinedOutput(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				resp.TopDirs = append(resp.TopDirs, DiskUsageItem{Size: fields[0], Path: fields[1], Bytes: uint64(parseHumanBytes(fields[0]))})
+			}
+		}
+	}
+	writeJSON(w, resp)
+}
+
+func (a *App) diskCleanupPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	resp := DiskCleanupPreviewResponse{Recommendation: "safe"}
+	dockerCtx, dockerCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer dockerCancel()
+	if output, err := exec.CommandContext(dockerCtx, "docker", "system", "df", "--format", "{{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}").CombinedOutput(); err == nil {
+		resp.DockerOK = true
+		var buildReclaimable, imagesReclaimable, volumesReclaimable string
+		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 4 {
+				continue
+			}
+			switch fields[0] {
+			case "Images":
+				imagesReclaimable = fields[3]
+			case "BuildCache", "Build Cache":
+				buildReclaimable = fields[3]
+			case "LocalVolumes", "Local Volumes":
+				volumesReclaimable = fields[3]
+			}
+		}
+		resp.Levels = []DiskCleanupLevel{
+			{Level: "safe", Description: "Docker build cache 清理", Reclaimable: buildReclaimable, Command: "docker builder prune --all --force", Risk: "低，仅清理构建缓存，不影响运行中容器"},
+			{Level: "standard", Description: "悬空镜像 + 已停止容器 + build cache", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable), Command: "docker system prune -f", Risk: "中，会删除未使用的镜像，可能影响回滚速度"},
+			{Level: "deep", Description: "未使用卷 + 未使用镜像 + build cache", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable, volumesReclaimable), Command: "docker system prune -af --volumes", Risk: "高，会删除所有未使用的卷和数据"},
+		}
+	}
+	writeJSON(w, resp)
+}
+
+func (a *App) diskCleanup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := authUserFromRequest(r)
+	if user.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var req DiskCleanupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Confirm != "CLEAN" {
+		writeError(w, http.StatusBadRequest, "请输入确认词 CLEAN")
+		return
+	}
+	var cmd *exec.Cmd
+	level := strings.ToLower(strings.TrimSpace(req.Level))
+	switch level {
+	case "safe":
+		cmd = exec.Command("docker", "builder", "prune", "--all", "--force")
+	case "standard":
+		cmd = exec.Command("docker", "system", "prune", "-f")
+	case "deep":
+		cmd = exec.Command("docker", "system", "prune", "-af", "--volumes")
+	default:
+		writeError(w, http.StatusBadRequest, "无效的清理级别，可选：safe / standard / deep")
+		return
+	}
+	output, err := cmd.CombinedOutput()
+	details := strings.TrimSpace(string(output))
+	if len(details) > 500 {
+		details = details[:500] + "..."
+	}
+	reclaimed := ""
+	if err == nil {
+		reclaimed = extractReclaimedSize(string(output))
+	}
+	_ = a.writeAudit(AuditRecord{
+		Time: time.Now().Format(time.RFC3339), UserID: user.ID, Username: user.Username, RemoteIP: remoteIP(r),
+		TaskID: "disk-cleanup-" + level, TaskTitle: "磁盘清理",
+		Variables: map[string]string{"level": level, "reclaimed": reclaimed},
+		Status:    ternaryText(err == nil, "ok", "error"),
+		Error:     ternaryText(err != nil, err.Error(), ""),
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "清理失败："+err.Error())
+		return
+	}
+	writeJSON(w, DiskCleanupResponse{OK: true, Level: level, Reclaimed: reclaimed, Details: details})
+}
+
+func combineReclaimable(values ...string) string {
+	total := float64(0)
+	for _, v := range values {
+		total += parseHumanBytes(v)
+	}
+	if total <= 0 {
+		return "0B"
+	}
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	unitIndex := 0
+	size := total
+	for size >= 1000 && unitIndex < len(units)-1 {
+		size /= 1000
+		unitIndex++
+	}
+	return fmt.Sprintf("%.1f%s", size, units[unitIndex])
+}
+
+func extractReclaimedSize(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "Reclaimed") || strings.Contains(line, "reclaimed") || strings.Contains(line, "Total reclaimed") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
+}
+
 func (a *App) writeAudit(record AuditRecord) error {
 	if a.store != nil {
 		return a.store.WriteAudit(context.Background(), record)
@@ -3614,6 +3856,8 @@ func (a *App) localDoctorChecks() []DoctorCheck {
 	add(commandDoctorCheck("docker-compose", "Docker Compose", []string{"docker", "compose", "version"}, "安装 Docker Compose plugin。"))
 	add(fileDoctorCheck("env-file", ".env 文件", ".env", "运行 scripts/bootstrap.sh 生成 .env，再补充公开地址和密钥。"))
 	add(fileDoctorCheck("tasks-file", "任务配置文件", a.cfg.TasksPath, "进入配置中心使用任务模板，或准备 data/peapod/tasks.json。"))
+	add(diskUsageDoctorCheck("disk-usage", "磁盘使用率"))
+	add(dockerDiskDoctorCheck("docker-disk", "Docker 磁盘空间"))
 	if a.store == nil {
 		add(DoctorCheck{
 			ID:       "database-auth",
@@ -3666,6 +3910,59 @@ func fileDoctorCheck(id string, title string, path string, fix string) DoctorChe
 		return DoctorCheck{ID: id, Title: title, Status: severity, Severity: severity, Message: "未找到 " + path, Fix: fix}
 	}
 	return DoctorCheck{ID: id, Title: title, Status: "ok", Severity: "ok", Message: path + " 已存在。"}
+}
+
+func diskUsageDoctorCheck(id string, title string) DoctorCheck {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "df", "-P", "/")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "无法读取磁盘信息", Fix: "检查 df 命令是否可用"}
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "无法解析磁盘信息", Fix: "检查 df 命令输出"}
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 5 {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "无法解析磁盘信息", Fix: "检查 df 命令输出"}
+	}
+	percentStr := strings.TrimSuffix(fields[4], "%")
+	percent, _ := strconv.Atoi(percentStr)
+	message := fmt.Sprintf("根分区使用率 %d%%", percent)
+	if percent >= 95 {
+		return DoctorCheck{ID: id, Title: title, Status: "error", Severity: "error", Message: message + "，磁盘即将耗尽", Fix: "立即执行磁盘清理，或扩容磁盘"}
+	} else if percent >= 90 {
+		return DoctorCheck{ID: id, Title: title, Status: "error", Severity: "error", Message: message + "，需要尽快清理", Fix: "执行磁盘清理，或扩容磁盘"}
+	} else if percent >= 80 {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: message + "，建议关注", Fix: "关注磁盘增长趋势，必要时清理"}
+	}
+	return DoctorCheck{ID: id, Title: title, Status: "ok", Severity: "ok", Message: message}
+}
+
+func dockerDiskDoctorCheck(id string, title string) DoctorCheck {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "system", "df", "--format", "{{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: "无法读取 Docker 磁盘信息（容器内可能无 Docker socket）", Fix: "确认 Docker 可用，或通过 SSH 监控查看"}
+	}
+	totalReclaimable := float64(0)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			reclaimable := parseHumanBytes(fields[3])
+			totalReclaimable += reclaimable
+		}
+	}
+	reclaimGB := uint64(totalReclaimable / (1024 * 1024 * 1024))
+	message := fmt.Sprintf("Docker 可回收约 %d GB", reclaimGB)
+	if reclaimGB > 20 {
+		return DoctorCheck{ID: id, Title: title, Status: "warning", Severity: "warning", Message: message, Fix: "运行 docker system prune 或通过 Peapod 磁盘清理任务回收空间"}
+	}
+	return DoctorCheck{ID: id, Title: title, Status: "ok", Severity: "ok", Message: message}
 }
 
 func (a *App) setupStatus(hosts []MonitorHostConfig) []SetupStatusItem {
