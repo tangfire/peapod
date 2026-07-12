@@ -1,8 +1,10 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:22-alpine AS frontend
 
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY frontend ./
 RUN npm run build
 
@@ -12,9 +14,11 @@ ENV GOPROXY=https://goproxy.cn,direct
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/peapod .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/peapod .
 
 FROM alpine:3.20
 

@@ -127,6 +127,7 @@ scp old-host:/opt/old-peapod/data/tasks.json /opt/peapod/data/peapod/tasks.json
 - `variables` 是否仍匹配业务仓库的 `.woodpecker` 文件。
 - 业务服务、Peapod、网关或中转站是否分别有部署和回退任务。
 - 清理磁盘任务是否只清 Docker cache、构建缓存和明确允许的目录。
+- 普通部署任务默认不要夹带磁盘清理；只有目标项目明确支持阈值清理时，才显式设置 `LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY=auto`。完整清理应保留为独立任务，并设置确认词。
 
 如果 repo id 改了，优先在 Peapod 设置页修改任务配置，不要改源码。
 
@@ -149,6 +150,8 @@ Peapod 自部署目前支持：
 - `DEPLOY_ACTION=status`：检查 Peapod Compose 服务和 health endpoint。
 - `DEPLOY_ACTION=restart`：重启 Peapod Compose 服务，不改代码和配置。
 - `DEPLOY_ACTION=deploy`：前端构建、Go 测试、Docker 镜像构建，然后 `docker compose up -d peapod`。
+
+Peapod 自部署脚本默认开启 BuildKit，Dockerfile 会复用 npm、Go module 和 Go build cache，重复部署时通常只重建变更层。
 
 当前 `scripts/deploy-peapod-docker.sh` 默认 Peapod 以 Docker Compose service `peapod` 运行，部署目录为 `/opt/peapod`。
 

@@ -17,6 +17,7 @@
       "risk": "normal",
       "variables": {
         "DEPLOY_ACTION": "deploy",
+        "LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY": "0",
         "PEAPOD_PROJECT_ID": "xzm-product",
         "PEAPOD_PROJECT_NAME": "写书猫产品",
         "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
@@ -36,6 +37,7 @@
       "variables": {
         "DEPLOY_ACTION": "deploy",
         "FORCE_DEPLOY": "1",
+        "LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY": "0",
         "PEAPOD_PROJECT_ID": "xzm-product",
         "PEAPOD_PROJECT_NAME": "写书猫产品",
         "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
@@ -54,6 +56,7 @@
       "confirm_text": "ROLLBACK",
       "variables": {
         "DEPLOY_ACTION": "rollback",
+        "LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY": "0",
         "PEAPOD_PROJECT_ID": "xzm-product",
         "PEAPOD_PROJECT_NAME": "写书猫产品",
         "PEAPOD_DEPLOY_MARKER_PATH": "/opt/woodpecker-cache/xiezuomao-novel-factory-meta/current-source-sha",
@@ -156,6 +159,8 @@
       "variables": {
         "DEPLOY_ACTION": "disk-cleanup",
         "CLEANUP_MODE": "deep",
+        "CLEANUP_PROJECT_ARTIFACTS": "1",
+        "CLEANUP_SHOW_STATS": "1",
         "PRUNE_UNUSED_IMAGES": "1",
         "CLEANUP_HOST_JOURNALD": "1",
         "CLEANUP_CI_CACHE_DAYS": "3"
@@ -174,6 +179,7 @@
       "variables": {
         "DEPLOY_ACTION": "production-disk-cleanup",
         "CLEANUP_MODE": "deep",
+        "CLEANUP_SHOW_STATS": "1",
         "PRUNE_UNUSED_IMAGES": "auto",
         "CLEANUP_HOST_JOURNALD": "1"
       }

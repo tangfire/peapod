@@ -1,4 +1,7 @@
 .env
+.git/
+.deploy/
+.woodpecker-build/
 data/
 mysql-data/
 zephyr

@@ -168,6 +168,8 @@ Task example:
 Use the same `PEAPOD_PROJECT_ID` for deploy and rollback tasks so the project status table can merge them into one service row.
 Deploy and rollback tasks must set `PEAPOD_DEPLOY_MARKER_PATH` or `PEAPOD_DEPLOY_VERIFY_URL`. Peapod treats a Woodpecker success as only a build result; a deployment becomes the current verified online version only after the marker commit matches and/or the health endpoint returns 2xx/3xx. Without either check, Peapod shows "build succeeded, deployment unverified" and disables that task as a trusted deploy entry.
 
+Keep disk cleanup as a separate maintenance task by default. Normal deployment tasks should stay fast and avoid automatic Docker pruning unless the target project explicitly supports threshold-based cleanup, for example `LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY=auto`. Manual cleanup tasks should use a confirmation word such as `CLEAN` and can enable reporting with `CLEANUP_SHOW_STATS=1`.
+
 By default the Peapod service mounts `${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}` read-only into the container so it can read host-side deployment markers such as `/opt/woodpecker-cache/<repo>-meta/current-source-sha` or `/opt/<service>/.deploy/current-source-sha`. If a service is remote or the marker path is not mounted, keep a health URL configured; Peapod will treat a passing health check as usable and show the missing marker as a verification wiring warning instead of a failed deployment.
 
 ## Peapod Self Deploy
@@ -177,6 +179,8 @@ This repository includes `.woodpecker/deploy.yml` for Peapod itself. It is a man
 - `DEPLOY_ACTION=status`: check the Peapod compose service and health endpoint.
 - `DEPLOY_ACTION=restart`: restart the Peapod compose service.
 - `DEPLOY_ACTION=deploy`: run frontend build, Go tests, build the Peapod image, run `docker compose up -d peapod`, and verify health.
+
+Peapod self-deploy enables Docker BuildKit by default. The Dockerfile uses npm, Go module, and Go build cache mounts so repeated deploys avoid re-downloading unchanged dependencies.
 
 To enable it on a new operations machine:
 

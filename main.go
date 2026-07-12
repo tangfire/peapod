@@ -4584,8 +4584,9 @@ func taskTemplates() []TaskTemplate {
 			DefaultBranch:        "main",
 			RequiresVerification: false,
 			Variables: map[string]string{
-				"DEPLOY_ACTION": "cleanup",
-				"CLEANUP_MODE":  "safe",
+				"DEPLOY_ACTION":      "cleanup",
+				"CLEANUP_MODE":       "safe",
+				"CLEANUP_SHOW_STATS": "1",
 			},
 			Inputs: []TemplateInput{
 				{Name: "repo_id", Label: "Woodpecker Repo ID", Type: "number", Required: true, Placeholder: "3"},

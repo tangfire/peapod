@@ -4295,7 +4295,7 @@ export function Docs({ state, compact = false }: { state: StateResponse; compact
   const data = [
     ["部署任务", "Woodpecker Repo ID / 默认分支", "DEPLOY_ACTION=deploy，建议设置 PEAPOD_PROJECT_ID、PEAPOD_DEPLOY_MARKER_PATH、PEAPOD_DEPLOY_VERIFY_URL"],
     ["回退任务", "同一 Repo / 同一项目 ID", "DEPLOY_ACTION=rollback，确认词建议 ROLLBACK"],
-    ["清理任务", "按项目自定义", "DEPLOY_ACTION=cleanup 或 disk-cleanup，确认词建议 CLEAN"],
+    ["清理任务", "按项目自定义", "DEPLOY_ACTION=cleanup 或 disk-cleanup；普通部署不默认清理，确认词建议 CLEAN"],
     ["基础设施入口", "PEAPOD_LINKS_JSON", "配置额外外部系统入口"],
     ["监控主机", "PEAPOD_MONITOR_HOSTS_JSON", "配置机器、容器、Beszel 名称和 SSH 兜底"]
   ];
@@ -4318,7 +4318,7 @@ export function Docs({ state, compact = false }: { state: StateResponse; compact
         showIcon
         icon={<FileText size={18} />}
         message="磁盘清理策略"
-        description={`建议把清理动作放进独立 Woodpecker 任务，并在脚本里保护正在运行的 CI 容器、${PRODUCT_NAME} 镜像和业务关键卷。`}
+        description={`建议把清理动作放进独立 Woodpecker 任务，并在脚本里保护正在运行的 CI 容器、${PRODUCT_NAME} 镜像和业务关键卷。普通部署保持轻量；确实需要阈值触发时，再由目标项目显式开启 LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY=auto。`}
       />
     </Space>
   );

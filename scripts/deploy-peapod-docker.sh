@@ -6,6 +6,9 @@ DEPLOY_DIR="${PEAPOD_DEPLOY_DIR:-/opt/peapod}"
 COMPOSE_SERVICE="${PEAPOD_COMPOSE_SERVICE:-peapod}"
 HEALTH_URL="${PEAPOD_HEALTH_URL:-http://127.0.0.1:8095/healthz}"
 
+export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
+export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
+
 host_healthcheck() {
   attempts="${1:-30}"
   i=1
