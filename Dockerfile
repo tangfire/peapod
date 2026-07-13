@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.20
 
-RUN apk add --no-cache su-exec && adduser -D -H -u 10001 app
+RUN apk add --no-cache su-exec docker-cli && adduser -D -H -u 10001 app
 WORKDIR /app
 COPY --from=builder /out/peapod /app/peapod
 COPY --from=frontend /src/frontend/dist /app/frontend/dist

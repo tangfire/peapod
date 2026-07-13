@@ -305,11 +305,16 @@ export type DiskCleanupPreviewResponse = {
   levels: DiskCleanupLevel[];
   recommendation: string;
   docker_ok: boolean;
+  running_containers?: number;
+  protected_images?: string[];
+  protected_volumes?: string[];
+  requires_force_running?: boolean;
 };
 
 export type DiskCleanupRequest = {
   level: string;
   confirm: string;
+  force_running?: boolean;
 };
 
 export type DiskCleanupBreakdownItem = {

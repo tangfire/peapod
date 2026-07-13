@@ -2374,6 +2374,7 @@ function DiskDiagnosisDrawer({
   const [preview, setPreview] = useState<DiskCleanupPreviewResponse | null>(null);
   const [cleanupLevel, setCleanupLevel] = useState<string>("safe");
   const [confirmText, setConfirmText] = useState("");
+  const [forceRunning, setForceRunning] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<string>("");
   const [autoCleanupConfig, setAutoCleanupConfig] = useState<{ level: string; disk: number } | null>(null);
@@ -2395,7 +2396,7 @@ function DiskDiagnosisDrawer({
     setCleaning(true);
     setCleanupResult("");
     try {
-      const result = await executeDiskCleanup({ level: cleanupLevel, confirm: confirmText });
+      const result = await executeDiskCleanup({ level: cleanupLevel, confirm: confirmText, force_running: forceRunning });
       setCleanupResult(`✅ 清理完成：回收 ${result.reclaimed} · ${result.details}`);
       setConfirmText("");
       const [newDiagnosis, newPreview] = await Promise.all([fetchDiskDiagnosis(), fetchDiskCleanupPreview()]);
@@ -2412,6 +2413,8 @@ function DiskDiagnosisDrawer({
   const docker = diagnosis?.docker;
   const topDirs = diagnosis?.top_dirs || [];
   const levels = preview?.levels || [];
+  const protectedImages = preview?.protected_images || [];
+  const protectedVolumes = preview?.protected_volumes || [];
 
   return (
     <Drawer title="磁盘诊断" open={open} onClose={onClose} width={560} destroyOnClose>
@@ -2501,6 +2504,23 @@ function DiskDiagnosisDrawer({
                 <Input.Password placeholder="输入 CLEAN 确认清理" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} style={{ width: 240 }} />
                 <Button type="primary" danger loading={cleaning} disabled={confirmText !== "CLEAN"} onClick={doCleanup} style={{ marginLeft: 8 }}>执行清理</Button>
               </div>
+              {preview?.requires_force_running && (cleanupLevel === "standard" || cleanupLevel === "deep") && (
+                <div style={{ marginTop: 12 }}>
+                  <Checkbox checked={forceRunning} onChange={(e) => setForceRunning(e.target.checked)}>
+                    强制停止运行中的容器（当前 {preview.running_containers} 个，{cleanupLevel} 会停止它们）
+                  </Checkbox>
+                </div>
+              )}
+              {(protectedImages.length > 0 || protectedVolumes.length > 0) && (
+                <Alert style={{ marginTop: 12 }} type="warning" showIcon message="受保护资源不会被清理"
+                  description={
+                    <div>
+                      {protectedImages.length > 0 && <div>镜像：{protectedImages.join("、")}</div>}
+                      {protectedVolumes.length > 0 && <div>卷：{protectedVolumes.join("、")}</div>}
+                    </div>
+                  }
+                />
+              )}
               {cleanupResult && <Alert style={{ marginTop: 12 }} type={cleanupResult.startsWith("✅") ? "success" : "error"} message={cleanupResult} />}
             </Card>
           )}

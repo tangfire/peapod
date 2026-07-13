@@ -210,6 +210,11 @@ func (a *App) diskCleanupPreview(w http.ResponseWriter, r *http.Request) {
 			{Level: "orphan-volumes", Description: "孤儿卷", Reclaimable: volumesReclaimable, Command: "docker volume prune -f", Risk: "中，删除未被任何容器使用的卷"},
 			{Level: "deep", Description: "深度清理（未使用镜像+卷+build cache）", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable, volumesReclaimable), Command: "docker system prune -af --volumes", Risk: "高，会删除所有未使用的镜像和卷"},
 		}
+		safety := collectCleanupSafety(dockerCtx, a.cfg)
+		resp.RunningContainers = safety.runningContainers
+		resp.ProtectedImages = safety.protectedImages
+		resp.ProtectedVolumes = safety.protectedVolumes
+		resp.RequiresForceRunning = safety.runningContainers > 0
 	}
 	writeJSON(w, resp)
 }
@@ -254,6 +259,23 @@ func (a *App) diskCleanup(w http.ResponseWriter, r *http.Request) {
 		steps = []cleanupStep{{Category: "deep", Args: []string{"docker", "system", "prune", "-af", "--volumes"}, Timeout: 120 * time.Second}}
 	default:
 		writeError(w, http.StatusBadRequest, "无效的清理级别，可选：build-cache / dangling-images / orphan-volumes / standard / deep")
+		return
+	}
+
+	// Safety pre-check (fail-closed): levels that stop running containers
+	// must be explicitly acknowledged when containers are up; protected
+	// images/volumes must never be pruned.
+	safety := collectCleanupSafety(r.Context(), a.cfg)
+	if levelStopsContainers(level) && safety.runningContainers > 0 && !req.ForceRunning {
+		writeError(w, http.StatusConflict, fmt.Sprintf("当前有 %d 个容器正在运行，%s 会停止它们。如确认无误，请勾选“强制停止运行中的容器”后重试。", safety.runningContainers, level))
+		return
+	}
+	if (level == "deep" || level == "orphan-volumes") && len(safety.protectedVolumes) > 0 {
+		writeError(w, http.StatusConflict, fmt.Sprintf("检测到 %d 个受保护卷，%s 不会删除它们。如确需清理，请从保护名单移除后再试。", len(safety.protectedVolumes), level))
+		return
+	}
+	if (level == "deep" || level == "dangling-images") && len(safety.protectedImages) > 0 {
+		writeError(w, http.StatusConflict, fmt.Sprintf("检测到 %d 个受保护镜像（含 Peapod 自身），%s 不会删除它们。如确需清理，请从保护名单移除后再试。", len(safety.protectedImages), level))
 		return
 	}
 
@@ -345,5 +367,59 @@ func extractReclaimedSize(output string) string {
 		}
 	}
 	return ""
+}
+
+// cleanupSafety gathers the information needed to keep disk cleanup safe:
+// how many containers are running, which images/volumes are protected, and
+// whether a given level would touch running containers or protected resources.
+type cleanupSafety struct {
+	runningContainers int
+	protectedImages   []string
+	protectedVolumes  []string
+}
+
+// collectCleanupSafety inspects the Docker daemon for running containers and
+// resolves the protected image/volume lists. It never fails the request; on any
+// Docker error it returns a zero-value safety struct (caller treats that as
+// "Docker unavailable", already guarded by DockerOK upstream).
+func collectCleanupSafety(ctx context.Context, cfg Config) cleanupSafety {
+	s := cleanupSafety{}
+	s.protectedImages = append(s.protectedImages, cfg.CleanupProtectImages...)
+	s.protectedVolumes = append(s.protectedVolumes, cfg.CleanupProtectVolumes...)
+
+	// Auto-protect the Peapod image: the image currently used by a container
+	// whose name matches the running Peapod service (best-effort, ignore errors).
+	if out, err := exec.CommandContext(ctx, "docker", "ps", "--filter", "name=peapod", "--format", "{{.Image}}").CombinedOutput(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			img := strings.TrimSpace(line)
+			if img != "" && !containsFold(s.protectedImages, img) {
+				s.protectedImages = append(s.protectedImages, img)
+			}
+		}
+	}
+
+	if out, err := exec.CommandContext(ctx, "docker", "ps", "-q").CombinedOutput(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if strings.TrimSpace(line) != "" {
+				s.runningContainers++
+			}
+		}
+	}
+	return s
+}
+
+// levelStopsContainers reports whether a cleanup level stops running containers.
+func levelStopsContainers(level string) bool {
+	return level == "standard" || level == "deep"
+}
+
+// containsFold is a case-insensitive substring/equality check helper.
+func containsFold(items []string, target string) bool {
+	for _, it := range items {
+		if strings.EqualFold(strings.TrimSpace(it), strings.TrimSpace(target)) {
+			return true
+		}
+	}
+	return false
 }
 

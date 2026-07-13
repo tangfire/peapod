@@ -50,6 +50,8 @@ func loadConfig() Config {
 		MonitorWarnMemory:             envIntFirst(80, "PEAPOD_MONITOR_WARN_MEMORY", "ZEPHYR_MONITOR_WARN_MEMORY", "ZEFIRE_MONITOR_WARN_MEMORY"),
 		MonitorAutoCleanupLevel:       envFirst("", "PEAPOD_MONITOR_AUTO_CLEANUP_LEVEL", "ZEPHYR_MONITOR_AUTO_CLEANUP_LEVEL", "ZEFIRE_MONITOR_AUTO_CLEANUP_LEVEL"),
 		MonitorAutoCleanupDisk:        envIntFirst(0, "PEAPOD_MONITOR_AUTO_CLEANUP_DISK", "ZEPHYR_MONITOR_AUTO_CLEANUP_DISK", "ZEFIRE_MONITOR_AUTO_CLEANUP_DISK"),
+		CleanupProtectImages:          splitList(env("PEAPOD_CLEANUP_PROTECT_IMAGES", "")),
+		CleanupProtectVolumes:         splitList(env("PEAPOD_CLEANUP_PROTECT_VOLUMES", "")),
 		AuditPath:                     envFirst("/data/audit.jsonl", "PEAPOD_AUDIT_PATH", "ZEPHYR_AUDIT_PATH", "ZEFIRE_AUDIT_PATH"),
 		TasksPath:                     envFirst("/data/tasks.json", "PEAPOD_TASKS_PATH", "ZEPHYR_TASKS_PATH", "ZEFIRE_TASKS_PATH"),
 		FrontendDir:                   envFirst("frontend/dist", "PEAPOD_FRONTEND_DIR", "ZEPHYR_FRONTEND_DIR", "ZEFIRE_FRONTEND_DIR"),
@@ -158,6 +160,12 @@ func applyRuntimeConfig(cfg *Config, runtime RuntimeConfigFile) {
 	if runtime.MonitorAutoCleanupDisk > 0 {
 		cfg.MonitorAutoCleanupDisk = runtime.MonitorAutoCleanupDisk
 	}
+	if len(runtime.CleanupProtectImages) > 0 {
+		cfg.CleanupProtectImages = runtime.CleanupProtectImages
+	}
+	if len(runtime.CleanupProtectVolumes) > 0 {
+		cfg.CleanupProtectVolumes = runtime.CleanupProtectVolumes
+	}
 }
 
 func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing RuntimeConfigFile) RuntimeConfigFile {
@@ -183,6 +191,8 @@ func runtimeConfigFromInput(input RuntimeConfigInput, current Config, existing R
 		MonitorWarnMemory:     clampInt(input.MonitorWarnMemory, 1, 100, current.MonitorWarnMemory),
 		MonitorAutoCleanupLevel: strings.TrimSpace(input.MonitorAutoCleanupLevel),
 		MonitorAutoCleanupDisk:  clampInt(input.MonitorAutoCleanupDisk, 0, 100, current.MonitorAutoCleanupDisk),
+		CleanupProtectImages:    normalizeProtectList(input.CleanupProtectImages),
+		CleanupProtectVolumes:   normalizeProtectList(input.CleanupProtectVolumes),
 	}
 	cfg.WoodpeckerToken = strings.TrimSpace(input.WoodpeckerToken)
 	if cfg.WoodpeckerToken == "" {
@@ -251,6 +261,43 @@ func clampInt(value int, minValue int, maxValue int, fallback int) int {
 		return maxValue
 	}
 	return value
+}
+
+// splitList splits a comma-separated env value into trimmed, non-empty items.
+func splitList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// normalizeProtectList trims and de-duplicates a protection list, dropping empties.
+func normalizeProtectList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" || seen[it] {
+			continue
+		}
+		seen[it] = true
+		out = append(out, it)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func normalizeLogStrategy(value string) string {

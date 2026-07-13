@@ -71,6 +71,8 @@ type Config struct {
 	MonitorWarnMemory             int
 	MonitorAutoCleanupLevel       string
 	MonitorAutoCleanupDisk        int
+	CleanupProtectImages          []string
+	CleanupProtectVolumes         []string
 	AuditPath                     string
 	TasksPath                     string
 	FrontendDir                   string
@@ -102,6 +104,8 @@ type RuntimeConfigFile struct {
 	MonitorWarnMemory     int                  `json:"monitor_warn_memory,omitempty"`
 	MonitorAutoCleanupLevel string              `json:"monitor_auto_cleanup_level,omitempty"`
 	MonitorAutoCleanupDisk  int                  `json:"monitor_auto_cleanup_disk,omitempty"`
+	CleanupProtectImages    []string            `json:"cleanup_protect_images,omitempty"`
+	CleanupProtectVolumes   []string            `json:"cleanup_protect_volumes,omitempty"`
 }
 
 type RuntimeConfigInput struct {
@@ -130,6 +134,8 @@ type RuntimeConfigInput struct {
 	MonitorWarnMemory     int                  `json:"monitor_warn_memory"`
 	MonitorAutoCleanupLevel string              `json:"monitor_auto_cleanup_level"`
 	MonitorAutoCleanupDisk  int                  `json:"monitor_auto_cleanup_disk"`
+	CleanupProtectImages    []string            `json:"cleanup_protect_images"`
+	CleanupProtectVolumes   []string            `json:"cleanup_protect_volumes"`
 }
 
 type SetupConfigResponse struct {
@@ -584,14 +590,19 @@ type DiskCleanupLevel struct {
 }
 
 type DiskCleanupPreviewResponse struct {
-	Levels         []DiskCleanupLevel `json:"levels"`
-	Recommendation string             `json:"recommendation"`
-	DockerOK       bool               `json:"docker_ok"`
+	Levels              []DiskCleanupLevel `json:"levels"`
+	Recommendation      string             `json:"recommendation"`
+	DockerOK            bool               `json:"docker_ok"`
+	RunningContainers   int                `json:"running_containers"`
+	ProtectedImages     []string           `json:"protected_images,omitempty"`
+	ProtectedVolumes    []string           `json:"protected_volumes,omitempty"`
+	RequiresForceRunning bool              `json:"requires_force_running"`
 }
 
 type DiskCleanupRequest struct {
-	Level   string `json:"level"`
-	Confirm string `json:"confirm"`
+	Level        string `json:"level"`
+	Confirm      string `json:"confirm"`
+	ForceRunning bool   `json:"force_running,omitempty"`
 }
 
 type DiskCleanupBreakdownItem struct {

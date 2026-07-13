@@ -20,6 +20,7 @@ services:
     volumes:
       - ./data/peapod:/data
       - ${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}:/opt:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
