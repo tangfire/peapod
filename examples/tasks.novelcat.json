@@ -64,6 +64,24 @@
       }
     },
     {
+      "id": "xzm-test-deploy",
+      "group": "写书猫测试环境",
+      "title": "部署测试环境",
+      "description": "从本次选择的分支构建测试环境，并核对测试环境实际落地的 commit。",
+      "repo_id": 1,
+      "repo_name": "tangfire/xiezuomao-novel-factory",
+      "branch": "main",
+      "risk": "normal",
+      "variables": {
+        "DEPLOY_ACTION": "test-deploy",
+        "PEAPOD_PROJECT_ID": "xzm-test",
+        "PEAPOD_PROJECT_NAME": "写书猫测试环境",
+        "PEAPOD_PROJECT_ENV": "test",
+        "PEAPOD_DEPLOY_MARKER_PATH": "/opt/novel-test/.deploy/current-source-sha",
+        "PEAPOD_DEPLOY_VERIFY_URL": "https://test.novelcat.cloud/api/health"
+      }
+    },
+    {
       "id": "xzm-site-deploy",
       "group": "写书猫官网",
       "title": "部署官网",

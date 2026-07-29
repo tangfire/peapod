@@ -67,6 +67,7 @@ func (a *App) runTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	bindSelectedSourceBranch(task, variables, branch)
 	pipeline, err := a.createPipeline(task.RepoID, branch, variables)
 	record := buildAuditRecord(user, r, task.ID, task.Title, task.RepoID, branch, 0, variables)
 	if err != nil {
@@ -82,6 +83,7 @@ func (a *App) runTask(w http.ResponseWriter, r *http.Request) {
 	_ = a.writeAudit(record)
 	responseTask := task
 	responseTask.Branch = branch
+	responseTask.Variables = variables
 	writeJSON(w, RunResponse{
 		OK:          true,
 		Task:        responseTask,
@@ -126,6 +128,8 @@ func (a *App) customRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "at least one variable is required", http.StatusBadRequest)
 		return
 	}
+	customTask := Task{ID: "custom-run", Group: "高级触发", Title: "高级触发", RepoID: req.RepoID, RepoName: strings.TrimSpace(req.RepoName), Branch: branch, Variables: variables}
+	bindSelectedSourceBranch(customTask, variables, branch)
 	pipeline, err := a.createPipeline(req.RepoID, branch, variables)
 	record := buildAuditRecord(user, r, "custom-run", "自定义部署", req.RepoID, branch, 0, variables)
 	if err != nil {
@@ -139,13 +143,26 @@ func (a *App) customRun(w http.ResponseWriter, r *http.Request) {
 	_ = a.writeAudit(record)
 	writeJSON(w, RunResponse{
 		OK:          true,
-		Task:        Task{ID: "custom-run", Group: "高级触发", Title: "高级触发", RepoID: req.RepoID, RepoName: strings.TrimSpace(req.RepoName), Branch: branch, Variables: variables},
+		Task:        customTask,
 		Pipeline:    pipeline,
 		Woodpecker:  a.pipelineURL(req.RepoID, pipeline.Number),
 		TriggeredAt: time.Now().Format(time.RFC3339),
 	})
 }
 
+func bindSelectedSourceBranch(task Task, variables map[string]string, branch string) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || variables == nil || !deploymentTaskRequiresVerification(task) {
+		return
+	}
+	for key := range variables {
+		if strings.EqualFold(strings.TrimSpace(key), "SOURCE_BRANCH") {
+			delete(variables, key)
+		}
+	}
+	variables["SOURCE_BRANCH"] = branch
+	variables["PEAPOD_REQUESTED_BRANCH"] = branch
+}
 
 func (a *App) templates(w http.ResponseWriter, r *http.Request) {
 	user := authUserFromRequest(r)
@@ -204,7 +221,6 @@ func (a *App) templateAction(w http.ResponseWriter, r *http.Request) {
 	}))
 	writeJSON(w, TemplateApplyResponse{Task: task, Config: cfg})
 }
-
 
 func (a *App) loadCustomTaskConfig() (CustomTaskConfig, error) {
 	cfg := CustomTaskConfig{Repos: map[int]string{}, Tasks: []Task{}}

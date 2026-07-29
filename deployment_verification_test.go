@@ -78,8 +78,8 @@ func TestApplyDeploymentVerificationHealthOKWithMissingMarkerIsDegraded(t *testi
 	status := &DeploymentStatus{CurrentCommit: "aaaaaaaa"}
 	applyDeploymentVerification(status, deploymentVerifyConfig{MarkerPath: filepath.Join(t.TempDir(), "missing-sha"), HealthURL: server.URL, Timeout: time.Second})
 
-	if !status.DeployVerified {
-		t.Fatalf("DeployVerified = false, message=%q", status.DeployVerifyMessage)
+	if status.DeployVerified {
+		t.Fatalf("DeployVerified = true, want false: message=%q", status.DeployVerifyMessage)
 	}
 	if !status.DeployDegraded {
 		t.Fatal("DeployDegraded = false, want true")
@@ -89,6 +89,57 @@ func TestApplyDeploymentVerificationHealthOKWithMissingMarkerIsDegraded(t *testi
 	}
 	if !strings.Contains(status.DeployVerifyMessage, "服务健康检查已通过") {
 		t.Fatalf("message = %q", status.DeployVerifyMessage)
+	}
+}
+
+func TestApplyDeploymentVerificationHealthOnlyDoesNotClaimVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	status := &DeploymentStatus{CurrentCommit: "aaaaaaaa"}
+	applyDeploymentVerification(status, deploymentVerifyConfig{HealthURL: server.URL, Timeout: time.Second})
+
+	if status.DeployVerified {
+		t.Fatal("health-only verification must not claim a deployed commit")
+	}
+	if status.DeployVerifyStatus != "health_only" {
+		t.Fatalf("DeployVerifyStatus = %q", status.DeployVerifyStatus)
+	}
+}
+
+func TestDeploymentSourceBranchPrefersBoundSourceBranch(t *testing.T) {
+	pipeline := Pipeline{
+		Branch: "main",
+		Variables: map[string]string{
+			"SOURCE_BRANCH": "dev",
+		},
+	}
+	if got := deploymentSourceBranch(pipeline); got != "dev" {
+		t.Fatalf("deploymentSourceBranch = %q, want dev", got)
+	}
+}
+
+func TestBindSelectedSourceBranchOverridesStaleTaskVariable(t *testing.T) {
+	variables := map[string]string{
+		"DEPLOY_ACTION":            "test-deploy",
+		"PEAPOD_PROJECT_ID":        "novel-test",
+		"PEAPOD_DEPLOY_VERIFY_URL": "https://test.example/healthz",
+		"source_branch":            "dev",
+	}
+	task := Task{RepoID: 1, Variables: variables}
+
+	bindSelectedSourceBranch(task, variables, "main")
+
+	if got := variables["SOURCE_BRANCH"]; got != "main" {
+		t.Fatalf("SOURCE_BRANCH = %q, want main", got)
+	}
+	if _, exists := variables["source_branch"]; exists {
+		t.Fatal("stale case-insensitive source_branch was not removed")
+	}
+	if got := variables["PEAPOD_REQUESTED_BRANCH"]; got != "main" {
+		t.Fatalf("PEAPOD_REQUESTED_BRANCH = %q, want main", got)
 	}
 }
 
@@ -126,6 +177,39 @@ func TestDeploymentStatusesOnlyVerifiedPipelineBecomesCurrent(t *testing.T) {
 	}
 	if rows[0].LatestCommit != "unverified999" {
 		t.Fatalf("LatestCommit = %q, want latest unverified commit", rows[0].LatestCommit)
+	}
+}
+
+func TestDeploymentStatusesHealthOnlyKeepsVersionUnconfirmed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	task := Task{
+		ID:     "deploy-app",
+		Title:  "部署应用",
+		RepoID: 7,
+		Branch: "main",
+		Variables: map[string]string{
+			"DEPLOY_ACTION":            "test-deploy",
+			"PEAPOD_PROJECT_ID":        "app-test",
+			"PEAPOD_DEPLOY_VERIFY_URL": server.URL,
+		},
+	}
+	pipelines := map[int][]Pipeline{7: {
+		{Number: 2, Status: "success", Branch: "main", Commit: "unverified999", Finished: 200, Variables: task.Variables},
+	}}
+
+	rows := deploymentStatuses([]Task{task}, map[int]string{7: "app"}, pipelines)
+	if len(rows) != 1 {
+		t.Fatalf("rows len = %d, want 1", len(rows))
+	}
+	if rows[0].CurrentCommit != "" || rows[0].CurrentBranch != "" {
+		t.Fatalf("health-only status claimed current version: branch=%q commit=%q", rows[0].CurrentBranch, rows[0].CurrentCommit)
+	}
+	if rows[0].LatestCommit != "unverified999" || rows[0].DeployVerifyStatus != "health_only" {
+		t.Fatalf("latest status = %#v", rows[0])
 	}
 }
 

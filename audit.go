@@ -192,7 +192,7 @@ func deploymentStatuses(tasks []Task, repos map[int]string, pipelines map[int][]
 			if isNewerActivity(pipeline, status.LatestAt) {
 				status.LatestAction = deploymentActionText(repoID, repoName, pipeline)
 				status.LatestStatus = pipeline.Status
-				status.LatestBranch = fallbackText(pipeline.Branch, "-")
+				status.LatestBranch = fallbackText(deploymentSourceBranch(pipeline), "-")
 				status.LatestCommit = deploymentCommitFromPipeline(pipeline)
 				status.LatestAt = pipelineActivityAt(pipeline)
 				status.LatestPipeline = pipeline.Number
@@ -291,7 +291,7 @@ func deploymentStatusFromPipeline(target deploymentTarget, repoID int, repoName 
 		RepoID:           repoID,
 		RepoName:         repoName,
 		ConfiguredBranch: fallbackText(configuredBranch, fallbackText(pipeline.Branch, "main")),
-		CurrentBranch:    fallbackText(pipeline.Branch, "-"),
+		CurrentBranch:    fallbackText(deploymentSourceBranch(pipeline), "-"),
 		CurrentCommit:    deploymentCommitFromPipeline(pipeline),
 		LastAction:       deploymentActionText(repoID, repoName, pipeline),
 		LastStatus:       pipeline.Status,
@@ -327,6 +327,14 @@ func deploymentCommitFromPipeline(pipeline Pipeline) string {
 		return commit
 	}
 	return strings.TrimSpace(pipeline.Commit)
+}
+
+func deploymentSourceBranch(pipeline Pipeline) string {
+	return firstNonEmptyString(
+		variableValue(pipeline.Variables, "SOURCE_BRANCH"),
+		variableValue(pipeline.Variables, "PEAPOD_REQUESTED_BRANCH"),
+		pipeline.Branch,
+	)
 }
 
 func isRollbackPipeline(pipeline Pipeline) bool {
@@ -499,11 +507,12 @@ func pipelineHasPedpodProjectMetadata(variables map[string]string) bool {
 func deploymentTaskFromPipeline(repoID int, pipeline Pipeline, tasks []Task) (Task, bool) {
 	bestScore := 0
 	var best Task
+	sourceBranch := deploymentSourceBranch(pipeline)
 	for _, task := range tasks {
 		if task.RepoID != repoID || task.ExternalURL != "" {
 			continue
 		}
-		if task.Branch != "" && pipeline.Branch != "" && task.Branch != pipeline.Branch {
+		if task.Branch != "" && sourceBranch != "" && task.Branch != sourceBranch {
 			continue
 		}
 		score := deploymentVariableMatchScore(task.Variables, pipeline.Variables)
@@ -814,10 +823,10 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 
 	if len(markerIssues) > 0 {
 		if healthChecked && healthOK {
-			status.DeployVerified = true
+			status.DeployVerified = false
 			status.DeployDegraded = true
 			status.DeployVerifyStatus = "marker_unavailable"
-			status.DeployVerifyMessage = "服务健康检查已通过；" + strings.Join(markerIssues, "；")
+			status.DeployVerifyMessage = "服务健康检查已通过，但无法确认本次部署版本；" + strings.Join(markerIssues, "；")
 			return
 		}
 		status.DeployVerified = false
@@ -834,7 +843,10 @@ func applyDeploymentVerification(status *DeploymentStatus, cfg deploymentVerifyC
 	case markerChecked && markerOK:
 		status.DeployVerifyMessage = "版本 marker 已确认"
 	case healthChecked && healthOK:
-		status.DeployVerifyMessage = "服务健康检查已通过"
+		status.DeployVerified = false
+		status.DeployDegraded = true
+		status.DeployVerifyStatus = "health_only"
+		status.DeployVerifyMessage = "服务健康检查已通过，但没有版本 marker，无法确认本次部署的分支和 commit"
 	default:
 		status.DeployVerified = false
 		status.DeployVerifyStatus = "pipeline_only"
