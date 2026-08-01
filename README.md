@@ -204,8 +204,8 @@ The runtime layer is split into `Dockerfile.runtime-base`; `scripts/deploy-peapo
 
 Recommended cleanup policy:
 
-- Use Peapod's `build-cache` or `standard` cleanup for routine disk pressure.
-- Avoid `deep` cleanup before a deploy unless you deliberately want to remove unused base images.
+- Use Peapod's `build-cache` or `standard` cleanup for routine disk pressure. Both paths preserve recent/reusable BuildKit cache and do not delete unused tagged base images, so the next deploy should avoid cold-downloading common layers such as Node, Go, Alpine, or docker-cli.
+- Use `deep` only for explicit maintenance windows. It can remove unused volumes and old dangling resources, but it still avoids `docker system prune -a` because routine cleanup should not discard stable base images.
 - If you customize cleanup protection, keep `peapod-runtime-base` protected alongside the running `peapod` image.
 
 To enable it on a new operations machine:

@@ -2372,7 +2372,7 @@ function DiskDiagnosisDrawer({
   const [loading, setLoading] = useState(false);
   const [diagnosis, setDiagnosis] = useState<DiskDiagnosisResponse | null>(null);
   const [preview, setPreview] = useState<DiskCleanupPreviewResponse | null>(null);
-  const [cleanupLevel, setCleanupLevel] = useState<string>("safe");
+  const [cleanupLevel, setCleanupLevel] = useState<string>("build-cache");
   const [confirmText, setConfirmText] = useState("");
   const [forceRunning, setForceRunning] = useState(false);
   const [cleaning, setCleaning] = useState(false);
@@ -4188,7 +4188,7 @@ function SetupConfigPanel({ onReload, initialSection = "guide" }: { onReload: ()
           <Divider plain>自动清理</Divider>
           <Row gutter={12}>
             <Col xs={12} lg={6}>
-              <Form.Item label="自动清理级别" name="monitor_auto_cleanup_level" extra="空=禁用，safe=仅 build cache，standard=含悬空镜像">
+              <Form.Item label="自动清理级别" name="monitor_auto_cleanup_level" extra="空=禁用，safe=保守清理过期构建缓存，standard=再清停止容器和悬空镜像">
                 <Select allowClear placeholder="禁用" options={[
                   { value: "", label: "禁用" },
                   { value: "safe", label: "safe — 仅 build cache" },

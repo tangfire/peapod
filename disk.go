@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+const (
+	cleanupBuildCacheUntil     = "168h"
+	cleanupStoppedContainerTTL = "24h"
+	cleanupDanglingImageTTL    = "24h"
+	cleanupDeepTTL             = "168h"
+)
+
 func (a *App) diskDiagnosis(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -204,11 +211,11 @@ func (a *App) diskCleanupPreview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp.Levels = []DiskCleanupLevel{
-			{Level: "build-cache", Description: "构建缓存", Reclaimable: buildReclaimable, Command: "docker builder prune --all --force", Risk: "低，仅清理构建缓存"},
+			{Level: "build-cache", Description: "保守清理构建缓存", Reclaimable: buildReclaimable, Command: "docker builder prune --force --filter until=" + cleanupBuildCacheUntil, Risk: "低，只清理过期悬空缓存，保留近期可复用缓存和基础镜像"},
 			{Level: "dangling-images", Description: "悬空镜像", Reclaimable: imagesReclaimable, Command: "docker image prune -f", Risk: "低，仅删除 <none> 标签镜像"},
-			{Level: "standard", Description: "标准清理（悬空镜像+停止容器+build cache）", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable), Command: "docker system prune -f", Risk: "中"},
+			{Level: "standard", Description: "标准清理（过期缓存+停止容器+悬空镜像）", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable), Command: "docker builder prune --force --filter until=" + cleanupBuildCacheUntil + " && docker container prune -f --filter until=" + cleanupStoppedContainerTTL + " && docker image prune -f --filter until=" + cleanupDanglingImageTTL, Risk: "中，不删除未被容器引用的基础镜像"},
 			{Level: "orphan-volumes", Description: "孤儿卷", Reclaimable: volumesReclaimable, Command: "docker volume prune -f", Risk: "中，删除未被任何容器使用的卷"},
-			{Level: "deep", Description: "深度清理（未使用镜像+卷+build cache）", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable, volumesReclaimable), Command: "docker system prune -af --volumes", Risk: "高，会删除所有未使用的镜像和卷"},
+			{Level: "deep", Description: "深度清理（过期悬空资源+卷）", Reclaimable: combineReclaimable(buildReclaimable, imagesReclaimable, volumesReclaimable), Command: "docker system prune -f --volumes --filter until=" + cleanupDeepTTL, Risk: "高，会删除未使用卷；仍保留可复用基础镜像，避免下次部署冷启动"},
 		}
 		safety := collectCleanupSafety(dockerCtx, a.cfg)
 		resp.RunningContainers = safety.runningContainers
@@ -248,15 +255,19 @@ func (a *App) diskCleanup(w http.ResponseWriter, r *http.Request) {
 	var steps []cleanupStep
 	switch level {
 	case "build-cache":
-		steps = []cleanupStep{{Category: "build_cache", Args: []string{"docker", "builder", "prune", "--all", "--force"}, Timeout: 30 * time.Second}}
+		steps = []cleanupStep{{Category: "build_cache", Args: []string{"docker", "builder", "prune", "--force", "--filter", "until=" + cleanupBuildCacheUntil}, Timeout: 30 * time.Second}}
 	case "dangling-images":
 		steps = []cleanupStep{{Category: "dangling_images", Args: []string{"docker", "image", "prune", "-f"}, Timeout: 30 * time.Second}}
 	case "orphan-volumes":
 		steps = []cleanupStep{{Category: "orphan_volumes", Args: []string{"docker", "volume", "prune", "-f"}, Timeout: 30 * time.Second}}
 	case "standard":
-		steps = []cleanupStep{{Category: "standard", Args: []string{"docker", "system", "prune", "-f"}, Timeout: 60 * time.Second}}
+		steps = []cleanupStep{
+			{Category: "build_cache", Args: []string{"docker", "builder", "prune", "--force", "--filter", "until=" + cleanupBuildCacheUntil}, Timeout: 30 * time.Second},
+			{Category: "stopped_containers", Args: []string{"docker", "container", "prune", "-f", "--filter", "until=" + cleanupStoppedContainerTTL}, Timeout: 30 * time.Second},
+			{Category: "dangling_images", Args: []string{"docker", "image", "prune", "-f", "--filter", "until=" + cleanupDanglingImageTTL}, Timeout: 30 * time.Second},
+		}
 	case "deep":
-		steps = []cleanupStep{{Category: "deep", Args: []string{"docker", "system", "prune", "-af", "--volumes"}, Timeout: 120 * time.Second}}
+		steps = []cleanupStep{{Category: "deep", Args: []string{"docker", "system", "prune", "-f", "--volumes", "--filter", "until=" + cleanupDeepTTL}, Timeout: 120 * time.Second}}
 	default:
 		writeError(w, http.StatusBadRequest, "无效的清理级别，可选：build-cache / dangling-images / orphan-volumes / standard / deep")
 		return
@@ -274,11 +285,6 @@ func (a *App) diskCleanup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, fmt.Sprintf("检测到 %d 个受保护卷，%s 不会删除它们。如确需清理，请从保护名单移除后再试。", len(safety.protectedVolumes), level))
 		return
 	}
-	if (level == "deep" || level == "dangling-images") && len(safety.protectedImages) > 0 {
-		writeError(w, http.StatusConflict, fmt.Sprintf("检测到 %d 个受保护镜像（含 Peapod 自身），%s 不会删除它们。如确需清理，请从保护名单移除后再试。", len(safety.protectedImages), level))
-		return
-	}
-
 	var breakdown []DiskCleanupBreakdownItem
 	totalReclaimed := float64(0)
 	allDetails := []string{}
@@ -409,8 +415,10 @@ func collectCleanupSafety(ctx context.Context, cfg Config) cleanupSafety {
 }
 
 // levelStopsContainers reports whether a cleanup level stops running containers.
+// Docker prune never stops running containers; it only removes already-stopped
+// containers and otherwise-unused resources.
 func levelStopsContainers(level string) bool {
-	return level == "standard" || level == "deep"
+	return false
 }
 
 // containsFold is a case-insensitive substring/equality check helper.
@@ -422,4 +430,3 @@ func containsFold(items []string, target string) bool {
 	}
 	return false
 }
-

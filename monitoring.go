@@ -56,25 +56,25 @@ type MonitoringSummary struct {
 }
 
 type MonitoringHost struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Role             string  `json:"role"`
-	Status           string  `json:"status"`
-	Source           string  `json:"source"`
-	CPUPercent       float64 `json:"cpu_percent,omitempty"`
-	MemoryUsedBytes  uint64  `json:"memory_used_bytes,omitempty"`
-	MemoryTotalBytes uint64  `json:"memory_total_bytes,omitempty"`
-	MemoryPercent    float64 `json:"memory_percent,omitempty"`
-	DiskUsedBytes    uint64  `json:"disk_used_bytes,omitempty"`
-	DiskTotalBytes   uint64  `json:"disk_total_bytes,omitempty"`
-	DiskPercent      float64 `json:"disk_percent,omitempty"`
-	Load1            float64 `json:"load_1,omitempty"`
-	Load5            float64 `json:"load_5,omitempty"`
-	Load15           float64 `json:"load_15,omitempty"`
-	NetworkBytes     uint64  `json:"network_bytes_per_second,omitempty"`
-	UptimeSeconds    uint64  `json:"uptime_seconds,omitempty"`
-	Uptime           string  `json:"uptime,omitempty"`
-	Message          string  `json:"message,omitempty"`
+	ID                     string          `json:"id"`
+	Name                   string          `json:"name"`
+	Role                   string          `json:"role"`
+	Status                 string          `json:"status"`
+	Source                 string          `json:"source"`
+	CPUPercent             float64         `json:"cpu_percent,omitempty"`
+	MemoryUsedBytes        uint64          `json:"memory_used_bytes,omitempty"`
+	MemoryTotalBytes       uint64          `json:"memory_total_bytes,omitempty"`
+	MemoryPercent          float64         `json:"memory_percent,omitempty"`
+	DiskUsedBytes          uint64          `json:"disk_used_bytes,omitempty"`
+	DiskTotalBytes         uint64          `json:"disk_total_bytes,omitempty"`
+	DiskPercent            float64         `json:"disk_percent,omitempty"`
+	Load1                  float64         `json:"load_1,omitempty"`
+	Load5                  float64         `json:"load_5,omitempty"`
+	Load15                 float64         `json:"load_15,omitempty"`
+	NetworkBytes           uint64          `json:"network_bytes_per_second,omitempty"`
+	UptimeSeconds          uint64          `json:"uptime_seconds,omitempty"`
+	Uptime                 string          `json:"uptime,omitempty"`
+	Message                string          `json:"message,omitempty"`
 	CleanupTaskID          string          `json:"cleanup_task_id,omitempty"`
 	DockerReclaimableBytes uint64          `json:"docker_reclaimable_bytes,omitempty"`
 	DiskBreakdown          []DiskUsageItem `json:"disk_breakdown,omitempty"`
@@ -1350,9 +1350,9 @@ func (m *MonitoringService) maybeAutoCleanup(hosts []MonitoringHost) *Monitoring
 	var cmdStr string
 	switch level {
 	case "safe":
-		cmdStr = "docker builder prune --all --force 2>&1"
+		cmdStr = "docker builder prune --force --filter until=168h 2>&1"
 	case "standard":
-		cmdStr = "docker system prune -f 2>&1"
+		cmdStr = "docker builder prune --force --filter until=168h 2>&1; docker container prune -f --filter until=24h 2>&1; docker image prune -f --filter until=24h 2>&1"
 	}
 
 	// Execute via SSH

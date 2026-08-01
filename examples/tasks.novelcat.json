@@ -176,12 +176,12 @@
       "confirm_text": "CLEAN",
       "variables": {
         "DEPLOY_ACTION": "disk-cleanup",
-        "CLEANUP_MODE": "deep",
+        "CLEANUP_MODE": "normal",
         "CLEANUP_PROJECT_ARTIFACTS": "1",
         "CLEANUP_SHOW_STATS": "1",
-        "PRUNE_UNUSED_IMAGES": "1",
+        "PRUNE_UNUSED_IMAGES": "0",
         "CLEANUP_HOST_JOURNALD": "1",
-        "CLEANUP_CI_CACHE_DAYS": "3"
+        "CLEANUP_CI_CACHE_DAYS": "7"
       }
     },
     {
