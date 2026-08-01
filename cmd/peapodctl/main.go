@@ -262,7 +262,7 @@ Examples:
 func commandLogin(args []string) error {
 	opts := defaultCommonOptions()
 	fs := newFlagSet("login", &opts)
-	if err := fs.Parse(args); err != nil {
+	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := newClient(opts)
@@ -283,7 +283,7 @@ func commandTasks(args []string) error {
 	fs := newFlagSet("tasks", &opts)
 	fs.BoolVar(&jsonOutput, "json", false, "print raw JSON")
 	fs.StringVar(&groupFilter, "group", "", "filter by task group")
-	if err := fs.Parse(args); err != nil {
+	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := newClient(opts)
@@ -327,7 +327,7 @@ func commandStatus(args []string) error {
 	var jsonOutput bool
 	fs := newFlagSet("status", &opts)
 	fs.BoolVar(&jsonOutput, "json", false, "print raw JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() > 1 {
@@ -394,7 +394,7 @@ func commandRun(args []string, deployMode bool) error {
 	fs.BoolVar(&jsonOutput, "json", false, "print raw JSON")
 	fs.BoolVar(&noVerify, "no-verify", false, "for deploy: do not require Peapod deployment verification")
 	fs.StringVar(&confirm, "confirm", "", "required confirmation text for guarded tasks")
-	if err := fs.Parse(args); err != nil {
+	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
@@ -489,7 +489,7 @@ func commandLocalRun(args []string, deployMode bool) error {
 	fs.BoolVar(&jsonOutput, "json", false, "print raw JSON")
 	fs.BoolVar(&noVerify, "no-verify", false, "for local-deploy: do not check marker/health")
 	fs.StringVar(&confirm, "confirm", "", "required confirmation text for guarded tasks")
-	if err := fs.Parse(args); err != nil {
+	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
@@ -1226,6 +1226,54 @@ func parseKeyValue(value string) (string, string, error) {
 		return "", "", fmt.Errorf("expected KEY=VALUE, got %q", value)
 	}
 	return key, parsed, nil
+}
+
+func parseInterspersedFlags(fs *flag.FlagSet, args []string) error {
+	if len(args) == 0 {
+		return fs.Parse(args)
+	}
+	reordered := make([]string, 0, len(args))
+	positionals := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
+		if isFlagArgument(arg) {
+			reordered = append(reordered, arg)
+			if flagNeedsSeparateValue(fs, arg) && i+1 < len(args) {
+				reordered = append(reordered, args[i+1])
+				i++
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	reordered = append(reordered, positionals...)
+	return fs.Parse(reordered)
+}
+
+func isFlagArgument(arg string) bool {
+	return strings.HasPrefix(arg, "-") && arg != "-"
+}
+
+func flagNeedsSeparateValue(fs *flag.FlagSet, arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	name := strings.TrimLeft(arg, "-")
+	if name == "" {
+		return false
+	}
+	registered := fs.Lookup(name)
+	if registered == nil {
+		return false
+	}
+	if boolFlag, ok := registered.Value.(interface{ IsBoolFlag() bool }); ok && boolFlag.IsBoolFlag() {
+		return false
+	}
+	return true
 }
 
 func terminalPipelineStatus(status string) bool {

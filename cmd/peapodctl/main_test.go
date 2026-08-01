@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"flag"
+	"testing"
+	"time"
+)
 
 func TestParseKeyValue(t *testing.T) {
 	key, value, err := parseKeyValue("DEPLOY_ACTION=test-deploy")
@@ -86,5 +90,38 @@ func TestBindLocalSourceBranchUsesConfiguredDeploymentTask(t *testing.T) {
 	}
 	if variables["PEAPOD_REQUESTED_BRANCH"] != "dev" {
 		t.Fatalf("PEAPOD_REQUESTED_BRANCH = %q", variables["PEAPOD_REQUESTED_BRANCH"])
+	}
+}
+
+func TestParseInterspersedFlagsAllowsTaskBeforeFlags(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	var branch string
+	var timeout time.Duration
+	var wait bool
+	fs.StringVar(&branch, "branch", "", "")
+	fs.DurationVar(&timeout, "timeout", 0, "")
+	fs.BoolVar(&wait, "wait", false, "")
+
+	if err := parseInterspersedFlags(fs, []string{"xzm-test-deploy", "--branch", "dev", "--timeout", "60m", "--wait"}); err != nil {
+		t.Fatalf("parseInterspersedFlags returned error: %v", err)
+	}
+	if fs.NArg() != 1 || fs.Arg(0) != "xzm-test-deploy" {
+		t.Fatalf("positional args = %v", fs.Args())
+	}
+	if branch != "dev" || timeout != 60*time.Minute || !wait {
+		t.Fatalf("parsed flags = branch=%q timeout=%s wait=%v", branch, timeout, wait)
+	}
+}
+
+func TestParseInterspersedFlagsKeepsInlineValues(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	var branch string
+	fs.StringVar(&branch, "branch", "", "")
+
+	if err := parseInterspersedFlags(fs, []string{"--branch=dev", "xzm-test-deploy"}); err != nil {
+		t.Fatalf("parseInterspersedFlags returned error: %v", err)
+	}
+	if fs.NArg() != 1 || fs.Arg(0) != "xzm-test-deploy" || branch != "dev" {
+		t.Fatalf("args/flags = args=%v branch=%q", fs.Args(), branch)
 	}
 }
