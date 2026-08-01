@@ -8,7 +8,10 @@ x-default-logging: &default-logging
 
 services:
   peapod:
-    build: .
+    build:
+      context: .
+      args:
+        PEAPOD_RUNTIME_BASE_IMAGE: ${PEAPOD_RUNTIME_BASE_IMAGE:-runtime-base}
     image: ${PEAPOD_IMAGE:-peapod:latest}
     container_name: ${PEAPOD_CONTAINER_NAME:-peapod}
     restart: unless-stopped

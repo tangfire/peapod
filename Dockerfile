@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
+ARG PEAPOD_RUNTIME_BASE_IMAGE=runtime-base
+
+FROM alpine:3.20 AS runtime-base
+
+RUN apk add --no-cache su-exec docker-cli && adduser -D -H -u 10001 app
+WORKDIR /app
+EXPOSE 8095
+
+ENTRYPOINT ["/bin/sh", "-lc", "chown -R app:app /data && exec su-exec app /app/peapod"]
+
 FROM node:22-alpine AS frontend
 
 WORKDIR /src/frontend
@@ -20,13 +30,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/peapod .
 
-FROM alpine:3.20
+FROM ${PEAPOD_RUNTIME_BASE_IMAGE}
 
-RUN apk add --no-cache su-exec docker-cli && adduser -D -H -u 10001 app
-WORKDIR /app
 COPY --from=builder /out/peapod /app/peapod
 COPY --from=frontend /src/frontend/dist /app/frontend/dist
 RUN mkdir -p /data && chown -R app:app /data
-EXPOSE 8095
-
-ENTRYPOINT ["/bin/sh", "-lc", "chown -R app:app /data && exec su-exec app /app/peapod"]

@@ -5,6 +5,8 @@ DEPLOY_ACTION="${DEPLOY_ACTION:-deploy}"
 DEPLOY_DIR="${PEAPOD_DEPLOY_DIR:-/opt/peapod}"
 COMPOSE_SERVICE="${PEAPOD_COMPOSE_SERVICE:-peapod}"
 HEALTH_URL="${PEAPOD_HEALTH_URL:-http://127.0.0.1:8095/healthz}"
+RUNTIME_BASE_DOCKERFILE="${PEAPOD_RUNTIME_BASE_DOCKERFILE:-Dockerfile.runtime-base}"
+RUNTIME_BASE_IMAGE_PREFIX="${PEAPOD_RUNTIME_BASE_IMAGE_PREFIX:-peapod-runtime-base}"
 
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
@@ -13,7 +15,8 @@ host_healthcheck() {
   attempts="${1:-30}"
   i=1
   while [ "$i" -le "$attempts" ]; do
-    if docker run --rm --network host docker:28-cli \
+    container_id="$(compose ps -q "$COMPOSE_SERVICE" 2>/dev/null || true)"
+    if [ -n "$container_id" ] && docker exec "$container_id" \
       sh -lc "wget -qO- --timeout=5 '$HEALTH_URL'" >/tmp/peapod-health.out 2>/tmp/peapod-health.err; then
       cat /tmp/peapod-health.out
       rm -f /tmp/peapod-health.out /tmp/peapod-health.err
@@ -31,6 +34,28 @@ host_healthcheck() {
 compose() {
   cd "$DEPLOY_DIR"
   docker compose "$@"
+}
+
+ensure_runtime_base_image() {
+  cd "$DEPLOY_DIR"
+  if [ ! -f "$RUNTIME_BASE_DOCKERFILE" ]; then
+    echo "runtime base Dockerfile not found: $DEPLOY_DIR/$RUNTIME_BASE_DOCKERFILE" >&2
+    return 1
+  fi
+
+  runtime_hash="$(sha256sum "$RUNTIME_BASE_DOCKERFILE" | awk '{print $1}' | cut -c1-16)"
+  runtime_image="${RUNTIME_BASE_IMAGE_PREFIX}:${runtime_hash}"
+  if [ "${PEAPOD_FORCE_RUNTIME_BASE_BUILD:-0}" != "1" ] && docker image inspect "$runtime_image" >/dev/null 2>&1; then
+    echo "Peapod runtime base already exists: $runtime_image"
+  else
+    echo "Building Peapod runtime base: $runtime_image"
+    docker build \
+      --label "peapod.runtime-base-sha=$runtime_hash" \
+      -f "$RUNTIME_BASE_DOCKERFILE" \
+      -t "$runtime_image" \
+      .
+  fi
+  export PEAPOD_RUNTIME_BASE_IMAGE="$runtime_image"
 }
 
 case "$DEPLOY_ACTION" in
@@ -105,6 +130,7 @@ fi
 mkdir -p "$DEPLOY_DIR/data/peapod/ssh" "$DEPLOY_DIR/.deploy" "${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}"
 chown -R "$owner_group" "$DEPLOY_DIR" 2>/dev/null || true
 
+ensure_runtime_base_image
 compose build "$COMPOSE_SERVICE"
 compose up -d --no-deps "$COMPOSE_SERVICE"
 host_healthcheck 30

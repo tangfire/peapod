@@ -1,0 +1,9 @@
+# syntax=docker/dockerfile:1.7
+
+FROM alpine:3.20
+
+RUN apk add --no-cache su-exec docker-cli && adduser -D -H -u 10001 app
+WORKDIR /app
+EXPOSE 8095
+
+ENTRYPOINT ["/bin/sh", "-lc", "chown -R app:app /data && exec su-exec app /app/peapod"]

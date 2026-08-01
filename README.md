@@ -198,6 +198,13 @@ This repository includes `.woodpecker/deploy.yml` for Peapod itself. It is a man
 - `DEPLOY_ACTION=deploy`: run frontend build, Go tests, build the Peapod image, run `docker compose up -d peapod`, and verify health.
 
 Peapod self-deploy enables Docker BuildKit by default. The Dockerfile uses npm, Go module, and Go build cache mounts so repeated deploys avoid re-downloading unchanged dependencies.
+The runtime layer is split into `Dockerfile.runtime-base`; `scripts/deploy-peapod-docker.sh` builds a content-hashed local image such as `peapod-runtime-base:<hash>` and passes it into the app build. This keeps slow packages like `docker-cli` out of the normal app rebuild path. If disk cleanup removes build cache but keeps local images, the next Peapod deploy can still reuse the runtime base image directly.
+
+Recommended cleanup policy:
+
+- Use Peapod's `build-cache` or `standard` cleanup for routine disk pressure.
+- Avoid `deep` cleanup before a deploy unless you deliberately want to remove unused base images.
+- If you customize cleanup protection, keep `peapod-runtime-base` protected alongside the running `peapod` image.
 
 To enable it on a new operations machine:
 
