@@ -1,0 +1,14 @@
+[Unit]
+Description=NovelCat CloudBeaver reverse tunnel to edge
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=codex
+WorkingDirectory=/opt/cloudbeaver-prod-db
+ExecStart=/usr/bin/ssh -N -R 127.0.0.1:18978:127.0.0.1:18978 -i /opt/cloudbeaver-prod-db/ssh/minio_edge_tunnel_ed25519 -p 22 -o BatchMode=yes -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=3 codex@159.75.153.53
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

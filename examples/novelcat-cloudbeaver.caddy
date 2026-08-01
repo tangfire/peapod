@@ -1,0 +1,7 @@
+db.novelcat.cloud {
+    encode zstd gzip
+    basic_auth {
+        novelcat <bcrypt-hash-from-caddy-hash-password>
+    }
+    reverse_proxy 127.0.0.1:18978
+}

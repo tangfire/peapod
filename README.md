@@ -94,6 +94,9 @@ The bundled `examples/` folder contains:
 - `tasks.peapod-self.json`: Peapod self-deploy tasks for Woodpecker
 - `monitor-hosts.generic.json`: local + remote host monitoring example
 - `tasks.novelcat.json`: studio-specific migration example, intentionally outside the app defaults
+- `external-links.novelcat.json`: NovelCat external infrastructure links, including the read-only CloudBeaver entry
+- `novelcat-cloudbeaver.compose.yml`: CloudBeaver + restricted SSH tunnel compose template for NovelCat production DB inspection
+- `novelcat-cloudbeaver-edge-tunnel.service` and `novelcat-cloudbeaver.caddy`: reverse tunnel and edge HTTPS templates for the CloudBeaver entry
 
 For daily use, prefer the Settings page:
 
@@ -171,6 +174,20 @@ Deploy and rollback tasks must set `PEAPOD_DEPLOY_MARKER_PATH` or `PEAPOD_DEPLOY
 Keep disk cleanup as a separate maintenance task by default. Normal deployment tasks should stay fast and avoid automatic Docker pruning unless the target project explicitly supports threshold-based cleanup, for example `LOCAL_DOCKER_CLEANUP_AFTER_DEPLOY=auto`. Manual cleanup tasks should use a confirmation word such as `CLEAN` and can enable reporting with `CLEANUP_SHOW_STATS=1`.
 
 By default the Peapod service mounts `${PEAPOD_DEPLOY_MARKER_ROOT:-/opt}` read-only into the container so it can read host-side deployment markers such as `/opt/woodpecker-cache/<repo>-meta/current-source-sha` or `/opt/<service>/.deploy/current-source-sha`. If a service is remote or the marker path is not mounted, keep a health URL configured; Peapod will treat a passing health check as usable and show the missing marker as a verification wiring warning instead of a failed deployment.
+
+## CLI
+
+`peapodctl` is the small operator CLI for the same task API used by the Peapod UI. It is useful from SSH sessions and automation when opening the UI would be slow.
+
+```bash
+go run ./cmd/peapodctl --help
+PEAPOD_URL=https://deploy.example.com PEAPOD_USERNAME=admin PEAPOD_PASSWORD=... go run ./cmd/peapodctl login
+go run ./cmd/peapodctl tasks
+go run ./cmd/peapodctl deploy app-deploy --branch main --timeout 45m
+```
+
+The CLI stores only the Peapod session cookie in the local user config directory. Use `PEAPOD_SESSION_FILE` when a server needs an explicit cache path.
+Tasks that define a confirmation word still require `--confirm ...` in the CLI.
 
 ## Peapod Self Deploy
 

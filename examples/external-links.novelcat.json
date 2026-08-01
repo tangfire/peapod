@@ -1,0 +1,9 @@
+[
+  {
+    "id": "novelcat-prod-db-console",
+    "title": "NovelCat Prod DB (read-only)",
+    "url": "https://db.novelcat.cloud",
+    "description": "CloudBeaver read-only production DB console behind edge auth.",
+    "group": "Infrastructure"
+  }
+]
