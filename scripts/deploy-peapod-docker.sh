@@ -7,6 +7,7 @@ COMPOSE_SERVICE="${PEAPOD_COMPOSE_SERVICE:-peapod}"
 HEALTH_URL="${PEAPOD_HEALTH_URL:-http://127.0.0.1:8095/healthz}"
 RUNTIME_BASE_DOCKERFILE="${PEAPOD_RUNTIME_BASE_DOCKERFILE:-Dockerfile.runtime-base}"
 RUNTIME_BASE_IMAGE_PREFIX="${PEAPOD_RUNTIME_BASE_IMAGE_PREFIX:-peapod-runtime-base}"
+PEAPODCTL_INSTALL_DIR="${PEAPODCTL_INSTALL_DIR:-$DEPLOY_DIR/bin}"
 
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
@@ -56,6 +57,21 @@ ensure_runtime_base_image() {
       .
   fi
   export PEAPOD_RUNTIME_BASE_IMAGE="$runtime_image"
+}
+
+install_peapodctl() {
+  container_id="$(compose ps -q "$COMPOSE_SERVICE" 2>/dev/null || true)"
+  if [ -z "$container_id" ]; then
+    echo "cannot install peapodctl: compose service is not running" >&2
+    return 1
+  fi
+  mkdir -p "$PEAPODCTL_INSTALL_DIR"
+  temp_path="$PEAPODCTL_INSTALL_DIR/.peapodctl.tmp"
+  rm -f "$temp_path"
+  docker cp "$container_id:/app/peapodctl" "$temp_path"
+  chmod 0755 "$temp_path"
+  mv -f "$temp_path" "$PEAPODCTL_INSTALL_DIR/peapodctl"
+  echo "installed peapodctl at $PEAPODCTL_INSTALL_DIR/peapodctl"
 }
 
 case "$DEPLOY_ACTION" in
@@ -133,6 +149,7 @@ chown -R "$owner_group" "$DEPLOY_DIR" 2>/dev/null || true
 ensure_runtime_base_image
 compose build "$COMPOSE_SERVICE"
 compose up -d --no-deps "$COMPOSE_SERVICE"
+install_peapodctl
 host_healthcheck 30
 
 printf '%s\n' "$deployed_sha" > "$DEPLOY_DIR/.deploy/current-source-sha"

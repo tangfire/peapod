@@ -29,9 +29,13 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/peapod .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/peapodctl ./cmd/peapodctl
 
 FROM ${PEAPOD_RUNTIME_BASE_IMAGE}
 
 COPY --from=builder /out/peapod /app/peapod
+COPY --from=builder /out/peapodctl /app/peapodctl
 COPY --from=frontend /src/frontend/dist /app/frontend/dist
 RUN mkdir -p /data && chown -R app:app /data

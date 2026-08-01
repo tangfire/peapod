@@ -64,3 +64,27 @@ func TestDeploymentStatusReady(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeLocalWoodpeckerServerHostGateway(t *testing.T) {
+	got := normalizeLocalWoodpeckerServer("http://host.docker.internal:8000")
+	if got != "http://127.0.0.1:8000" {
+		t.Fatalf("normalizeLocalWoodpeckerServer = %q", got)
+	}
+}
+
+func TestBindLocalSourceBranchUsesConfiguredDeploymentTask(t *testing.T) {
+	variables := map[string]string{
+		"DEPLOY_ACTION":             "test-deploy",
+		"PEAPOD_DEPLOY_VERIFY_URL":  "https://test.example/api/health",
+		"PEAPOD_DEPLOY_MARKER_PATH": "/opt/app/.deploy/current-source-sha",
+		"PEAPOD_REQUESTED_BRANCH":   "old",
+		"SOURCE_BRANCH":             "old",
+	}
+	bindLocalSourceBranch(task{Variables: variables}, variables, "dev")
+	if variables["SOURCE_BRANCH"] != "dev" {
+		t.Fatalf("SOURCE_BRANCH = %q", variables["SOURCE_BRANCH"])
+	}
+	if variables["PEAPOD_REQUESTED_BRANCH"] != "dev" {
+		t.Fatalf("PEAPOD_REQUESTED_BRANCH = %q", variables["PEAPOD_REQUESTED_BRANCH"])
+	}
+}

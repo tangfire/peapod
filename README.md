@@ -184,10 +184,12 @@ go run ./cmd/peapodctl --help
 PEAPOD_URL=https://deploy.example.com PEAPOD_USERNAME=admin PEAPOD_PASSWORD=... go run ./cmd/peapodctl login
 go run ./cmd/peapodctl tasks
 go run ./cmd/peapodctl deploy app-deploy --branch main --timeout 45m
+/opt/peapod/bin/peapodctl local-deploy app-deploy --branch main --timeout 45m
 ```
 
-The CLI stores only the Peapod session cookie in the local user config directory. Use `PEAPOD_SESSION_FILE` when a server needs an explicit cache path.
+Self-deploy also installs the compiled CLI at `/opt/peapod/bin/peapodctl`, so an operations host does not need Go installed. The CLI stores only the Peapod session cookie in the local user config directory. Use `PEAPOD_SESSION_FILE` when a server needs an explicit cache path.
 Tasks that define a confirmation word still require `--confirm ...` in the CLI.
+The `local-run` / `local-deploy` commands are for SSH sessions on the operations host: they read `/opt/peapod/data/peapod/tasks.json` plus Peapod's Woodpecker config, then trigger the same Woodpecker task Peapod would trigger from the UI. They do not implement deployment themselves, so project-specific cache paths such as `/opt/woodpecker-cache`, BuildKit cache mounts, and task variables like `DEPLOY_ACTION=test-deploy` remain in effect.
 
 ## Peapod Self Deploy
 

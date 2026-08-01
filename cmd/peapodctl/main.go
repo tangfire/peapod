@@ -222,6 +222,10 @@ func run(args []string) error {
 		return commandRun(args[1:], false)
 	case "deploy":
 		return commandRun(args[1:], true)
+	case "local-run":
+		return commandLocalRun(args[1:], false)
+	case "local-deploy":
+		return commandLocalRun(args[1:], true)
 	case "summary":
 		return commandSummary(args[1:])
 	default:
@@ -236,6 +240,8 @@ func printUsage(w io.Writer) {
   peapodctl status [task-id] [flags]
   peapodctl run <task-id> [--branch dev] [--input KEY=VALUE] [--wait] [flags]
   peapodctl deploy <task-id> [--branch dev] [--input KEY=VALUE] [flags]
+  peapodctl local-run <task-id> [--dir /opt/peapod] [--branch dev] [--wait]
+  peapodctl local-deploy <task-id> [--dir /opt/peapod] [--branch dev]
   peapodctl summary <repo-id> <pipeline-number> [flags]
 
 Common flags:
@@ -249,6 +255,7 @@ Examples:
   PEAPOD_URL=https://deploy.novelcat.cloud peapodctl tasks
   PEAPOD_URL=https://deploy.novelcat.cloud PEAPOD_PASSWORD=... peapodctl login
   peapodctl deploy xzm-test-deploy --branch dev --timeout 45m
+  peapodctl local-deploy xzm-test-deploy --dir /opt/peapod --branch dev --timeout 45m
   peapodctl run peapod-deploy --branch main --wait --timeout 30m`)
 }
 
@@ -453,6 +460,118 @@ func commandRun(args []string, deployMode bool) error {
 	return nil
 }
 
+func commandLocalRun(args []string, deployMode bool) error {
+	var inputs keyValueFlags
+	var branch string
+	var dir string
+	var server string
+	var token string
+	var wait bool
+	var jsonOutput bool
+	var timeout time.Duration
+	var pollInterval time.Duration
+	var noVerify bool
+	var confirm string
+	fs := flag.NewFlagSet("local-run", flag.ContinueOnError)
+	if deployMode {
+		fs = flag.NewFlagSet("local-deploy", flag.ContinueOnError)
+		wait = true
+	}
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&dir, "dir", firstNonEmpty(os.Getenv("PEAPOD_DIR"), "/opt/peapod"), "Peapod deploy directory")
+	fs.StringVar(&branch, "branch", "", "source branch")
+	fs.Var(&inputs, "input", "task input as KEY=VALUE; repeatable")
+	fs.StringVar(&server, "woodpecker-server", os.Getenv("WOODPECKER_SERVER"), "Woodpecker API URL")
+	fs.StringVar(&token, "woodpecker-token", os.Getenv("WOODPECKER_TOKEN"), "Woodpecker API token")
+	fs.BoolVar(&wait, "wait", wait, "wait for pipeline completion")
+	fs.DurationVar(&timeout, "timeout", defaultWaitTimeout, "wait timeout")
+	fs.DurationVar(&pollInterval, "poll", defaultPollInterval, "poll interval")
+	fs.BoolVar(&jsonOutput, "json", false, "print raw JSON")
+	fs.BoolVar(&noVerify, "no-verify", false, "for local-deploy: do not check marker/health")
+	fs.StringVar(&confirm, "confirm", "", "required confirmation text for guarded tasks")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("task id is required")
+	}
+	taskID := fs.Arg(0)
+	local, err := loadLocalPeapod(dir)
+	if err != nil {
+		return err
+	}
+	taskRow, ok := findTask(local.Tasks, taskID)
+	if !ok {
+		return fmt.Errorf("task %q not found in %s", taskID, local.TasksPath)
+	}
+	if taskRow.Disabled {
+		return fmt.Errorf("task %q is disabled", taskID)
+	}
+	if taskRow.ConfirmText != "" && strings.TrimSpace(confirm) != taskRow.ConfirmText {
+		return fmt.Errorf("task %q requires --confirm %q", taskID, taskRow.ConfirmText)
+	}
+	if branch = strings.TrimSpace(branch); branch == "" {
+		branch = firstNonEmpty(taskRow.Branch, "main")
+	}
+	if server = strings.TrimSpace(server); server == "" {
+		server = local.WoodpeckerServer
+	}
+	if token = strings.TrimSpace(token); token == "" {
+		token = local.WoodpeckerToken
+	}
+	if server == "" {
+		return errors.New("Woodpecker server is missing; set --woodpecker-server or configure Peapod")
+	}
+	if token == "" {
+		return errors.New("Woodpecker token is missing; set --woodpecker-token or configure Peapod")
+	}
+	server = normalizeLocalWoodpeckerServer(server)
+	wc, err := newWoodpeckerClient(server, token)
+	if err != nil {
+		return err
+	}
+	variables := cloneStringMap(taskRow.Variables)
+	for key, value := range inputs {
+		variables[key] = value
+	}
+	bindLocalSourceBranch(taskRow, variables, branch)
+	pipeline, err := wc.createPipeline(context.Background(), taskRow.RepoID, branch, variables)
+	if err != nil {
+		return err
+	}
+	pipeline.RepoID = taskRow.RepoID
+	pipeline.RepoName = firstNonEmpty(taskRow.RepoName, local.Repos[taskRow.RepoID])
+	if jsonOutput && !wait {
+		return printJSON(pipeline)
+	}
+	if !jsonOutput {
+		fmt.Printf("triggered local task %s -> pipeline #%d (%s branch=%s)\n", taskRow.ID, pipeline.Number, server, branch)
+	}
+	if !wait {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	summary, err := wc.waitPipeline(ctx, taskRow.RepoID, pipeline.Number, pollInterval)
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return printJSON(summary)
+	}
+	if summary.Pipeline.Status != "success" {
+		printPipelineFailure(summary)
+		return fmt.Errorf("pipeline #%d finished with status %s", pipeline.Number, summary.Pipeline.Status)
+	}
+	fmt.Printf("pipeline #%d succeeded (%s)\n", pipeline.Number, shortCommit(summary.Pipeline.Commit))
+	if deployMode && !noVerify {
+		if err := waitLocalDeploymentReady(ctx, taskRow, summary.Pipeline, pollInterval); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func commandSummary(args []string) error {
 	opts := defaultCommonOptions()
 	var jsonOutput bool
@@ -485,6 +604,340 @@ func commandSummary(args []string) error {
 	}
 	printPipelineSummary(summary)
 	return nil
+}
+
+type localPeapod struct {
+	Dir              string
+	TasksPath        string
+	Tasks            []task
+	Repos            map[int]string
+	WoodpeckerServer string
+	WoodpeckerToken  string
+}
+
+type localTaskConfig struct {
+	Repos map[int]string `json:"repos,omitempty"`
+	Tasks []task         `json:"tasks"`
+}
+
+type runtimeConfigFile struct {
+	WoodpeckerServer string `json:"woodpecker_server,omitempty"`
+	WoodpeckerToken  string `json:"woodpecker_token,omitempty"`
+}
+
+type woodpeckerClient struct {
+	server     string
+	token      string
+	httpClient *http.Client
+}
+
+func loadLocalPeapod(dir string) (localPeapod, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = "/opt/peapod"
+	}
+	envValues := map[string]string{}
+	if values, err := readEnvFile(filepath.Join(dir, ".env")); err == nil {
+		envValues = values
+	}
+	taskPath := firstExistingFile(
+		envValues["PEAPOD_TASKS_PATH"],
+		filepath.Join(dir, "data", "peapod", "tasks.json"),
+		filepath.Join(dir, "data", "tasks.json"),
+	)
+	if taskPath == "" {
+		return localPeapod{}, fmt.Errorf("tasks file not found under %s", dir)
+	}
+	var taskConfig localTaskConfig
+	if err := readJSONFile(taskPath, &taskConfig); err != nil {
+		return localPeapod{}, err
+	}
+	runtimeConfig := runtimeConfigFile{}
+	_ = readJSONFile(firstExistingFile(
+		envValues["PEAPOD_CONFIG_PATH"],
+		filepath.Join(dir, "data", "peapod", "config.json"),
+		filepath.Join(dir, "data", "config.json"),
+	), &runtimeConfig)
+	return localPeapod{
+		Dir:              dir,
+		TasksPath:        taskPath,
+		Tasks:            taskConfig.Tasks,
+		Repos:            taskConfig.Repos,
+		WoodpeckerServer: firstNonEmpty(runtimeConfig.WoodpeckerServer, envValues["WOODPECKER_SERVER"], "http://127.0.0.1:8000"),
+		WoodpeckerToken:  firstNonEmpty(runtimeConfig.WoodpeckerToken, envValues["WOODPECKER_TOKEN"]),
+	}, nil
+}
+
+func readJSONFile(path string, out any) error {
+	if strings.TrimSpace(path) == "" {
+		return os.ErrNotExist
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
+		return fmt.Errorf("decode %s: %w", path, err)
+	}
+	return nil
+}
+
+func readEnvFile(path string) (map[string]string, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(payload), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, `"'`)
+		values[key] = value
+	}
+	return values, nil
+}
+
+func firstExistingFile(paths ...string) string {
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) && !strings.Contains(path, string(filepath.Separator)) {
+			continue
+		}
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return ""
+}
+
+func normalizeLocalWoodpeckerServer(raw string) string {
+	normalized, err := normalizeBaseURL(raw)
+	if err != nil {
+		return strings.TrimRight(strings.TrimSpace(raw), "/")
+	}
+	parsed, err := url.Parse(normalized)
+	if err == nil && strings.EqualFold(parsed.Hostname(), "host.docker.internal") {
+		port := parsed.Port()
+		if port == "" {
+			port = "8000"
+		}
+		parsed.Host = "127.0.0.1:" + port
+		return strings.TrimRight(parsed.String(), "/")
+	}
+	return normalized
+}
+
+func newWoodpeckerClient(server, token string) (*woodpeckerClient, error) {
+	server, err := normalizeBaseURL(server)
+	if err != nil {
+		return nil, err
+	}
+	return &woodpeckerClient{
+		server:     server,
+		token:      strings.TrimSpace(token),
+		httpClient: &http.Client{Timeout: 3 * time.Minute},
+	}, nil
+}
+
+func (c *woodpeckerClient) createPipeline(ctx context.Context, repoID int, branch string, variables map[string]string) (pipeline, error) {
+	body := map[string]any{
+		"branch":    branch,
+		"variables": variables,
+	}
+	var out pipeline
+	path := fmt.Sprintf("/api/repos/%d/pipelines", repoID)
+	err := c.do(ctx, http.MethodPost, path, body, &out)
+	return out, err
+}
+
+func (c *woodpeckerClient) pipeline(ctx context.Context, repoID int, number int64) (pipeline, error) {
+	var out pipeline
+	path := fmt.Sprintf("/api/repos/%d/pipelines/%d", repoID, number)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	out.RepoID = repoID
+	return out, err
+}
+
+func (c *woodpeckerClient) waitPipeline(ctx context.Context, repoID int, number int64, poll time.Duration) (pipelineSummary, error) {
+	if poll <= 0 {
+		poll = defaultPollInterval
+	}
+	var lastStatus string
+	for {
+		row, err := c.pipeline(ctx, repoID, number)
+		if err != nil {
+			return pipelineSummary{}, err
+		}
+		status := strings.ToLower(strings.TrimSpace(row.Status))
+		if status != lastStatus {
+			fmt.Printf("pipeline #%d status: %s\n", number, fallback(status, "unknown"))
+			lastStatus = status
+		}
+		if terminalPipelineStatus(status) {
+			return pipelineSummary{Pipeline: row, WoodpeckerURL: c.pipelineURL(repoID, number)}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return pipelineSummary{}, ctx.Err()
+		case <-time.After(poll):
+		}
+	}
+}
+
+func (c *woodpeckerClient) pipelineURL(repoID int, number int64) string {
+	return fmt.Sprintf("%s/repos/%d/pipeline/%d", strings.TrimRight(c.server, "/"), repoID, number)
+}
+
+func (c *woodpeckerClient) do(ctx context.Context, method, path string, body any, out any) error {
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.server+path, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return parseAPIError(resp.StatusCode, payload)
+	}
+	if out == nil || len(strings.TrimSpace(string(payload))) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
+		return fmt.Errorf("decode Woodpecker response %s %s: %w", method, path, err)
+	}
+	return nil
+}
+
+func bindLocalSourceBranch(t task, variables map[string]string, branch string) {
+	if variables == nil || strings.TrimSpace(branch) == "" || !localDeploymentTask(t) {
+		return
+	}
+	for key := range variables {
+		if strings.EqualFold(strings.TrimSpace(key), "SOURCE_BRANCH") {
+			delete(variables, key)
+		}
+	}
+	variables["SOURCE_BRANCH"] = branch
+	variables["PEAPOD_REQUESTED_BRANCH"] = branch
+}
+
+func localDeploymentTask(t task) bool {
+	return variableValue(t.Variables, "PEAPOD_DEPLOY_MARKER_PATH") != "" ||
+		variableValue(t.Variables, "PEAPOD_DEPLOY_VERIFY_URL") != "" ||
+		variableValue(t.Variables, "PEAPOD_HEALTH_URL") != ""
+}
+
+func waitLocalDeploymentReady(ctx context.Context, t task, p pipeline, poll time.Duration) error {
+	markerPath := variableValue(t.Variables, "PEAPOD_DEPLOY_MARKER_PATH")
+	healthURL := firstNonEmpty(variableValue(t.Variables, "PEAPOD_DEPLOY_VERIFY_URL"), variableValue(t.Variables, "PEAPOD_HEALTH_URL"))
+	if markerPath == "" && healthURL == "" {
+		return errors.New("local deployment verification needs PEAPOD_DEPLOY_MARKER_PATH or PEAPOD_DEPLOY_VERIFY_URL")
+	}
+	if poll <= 0 {
+		poll = defaultPollInterval
+	}
+	for {
+		markerOK, markerMessage := localMarkerOK(markerPath, p.Commit)
+		healthOK, healthMessage := localHealthOK(ctx, healthURL)
+		ready := true
+		if markerPath != "" && !markerOK {
+			ready = false
+		}
+		if healthURL != "" && !healthOK {
+			ready = false
+		}
+		if ready {
+			parts := []string{}
+			if markerPath != "" {
+				parts = append(parts, "marker "+markerMessage)
+			}
+			if healthURL != "" {
+				parts = append(parts, "health "+healthMessage)
+			}
+			fmt.Printf("deployment ready: %s\n", strings.Join(parts, "；"))
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("deployment verification timeout: marker=%s health=%s", markerMessage, healthMessage)
+		case <-time.After(poll):
+		}
+	}
+}
+
+func localMarkerOK(path, commit string) (bool, string) {
+	if path == "" {
+		return true, "not configured"
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return false, err.Error()
+	}
+	actual := strings.TrimSpace(string(payload))
+	if actual == "" {
+		return false, "empty marker"
+	}
+	if deploymentCommitMatches(actual, commit) {
+		return true, shortCommit(actual)
+	}
+	return false, fmt.Sprintf("actual %s != pipeline %s", shortCommit(actual), shortCommit(commit))
+}
+
+func localHealthOK(ctx context.Context, healthURL string) (bool, string) {
+	if healthURL == "" {
+		return true, "not configured"
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return true, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	}
+	return false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+}
+
+func deploymentCommitMatches(actual, expected string) bool {
+	actual = strings.TrimSpace(actual)
+	expected = strings.TrimSpace(expected)
+	if actual == "" || expected == "" {
+		return false
+	}
+	return strings.HasPrefix(actual, expected) || strings.HasPrefix(expected, actual)
 }
 
 func defaultCommonOptions() commonOptions {
@@ -866,6 +1319,14 @@ func variableValue(values map[string]string, key string) string {
 		}
 	}
 	return ""
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	cloned := map[string]string{}
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func normalizeID(value string) string {
