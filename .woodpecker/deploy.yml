@@ -9,12 +9,6 @@ clone:
       depth: 50
       lfs: false
       recursive: false
-      use_ssh: true
-      remote_ssh: git@github.com:tangfire/peapod.git
-      ssh_key: /run/secrets/github_peapod_deploy_ed25519
-      ssh_host_key: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-    volumes:
-      - /opt/peapod/data/secrets/github_peapod_deploy_ed25519:/run/secrets/github_peapod_deploy_ed25519:ro
 
 steps:
   - name: go-test
