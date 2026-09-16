@@ -76,6 +76,26 @@ func TestNormalizeLocalWoodpeckerServerHostGateway(t *testing.T) {
 	}
 }
 
+func TestNormalizeLocalServiceURLHostGateway(t *testing.T) {
+	got := normalizeLocalServiceURL("http://host.docker.internal:15188/api/health")
+	if got != "http://127.0.0.1:15188/api/health" {
+		t.Fatalf("normalizeLocalServiceURL = %q", got)
+	}
+}
+
+func TestNormalizeLocalServiceURLKeepsExternalHost(t *testing.T) {
+	const want = "https://test.example/api/health"
+	if got := normalizeLocalServiceURL(want); got != want {
+		t.Fatalf("normalizeLocalServiceURL = %q, want %q", got, want)
+	}
+}
+
+func TestDeploymentCommitMatchesCaseInsensitive(t *testing.T) {
+	if !deploymentCommitMatches("ABCDEF123456", "abcdef") {
+		t.Fatal("deploymentCommitMatches should ignore hexadecimal case")
+	}
+}
+
 func TestBindLocalSourceBranchUsesConfiguredDeploymentTask(t *testing.T) {
 	variables := map[string]string{
 		"DEPLOY_ACTION":             "test-deploy",

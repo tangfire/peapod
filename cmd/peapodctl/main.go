@@ -722,6 +722,14 @@ func firstExistingFile(paths ...string) string {
 }
 
 func normalizeLocalWoodpeckerServer(raw string) string {
+	return normalizeLocalHostGateway(raw, "8000")
+}
+
+func normalizeLocalServiceURL(raw string) string {
+	return normalizeLocalHostGateway(raw, "")
+}
+
+func normalizeLocalHostGateway(raw, defaultPort string) string {
 	normalized, err := normalizeBaseURL(raw)
 	if err != nil {
 		return strings.TrimRight(strings.TrimSpace(raw), "/")
@@ -729,10 +737,13 @@ func normalizeLocalWoodpeckerServer(raw string) string {
 	parsed, err := url.Parse(normalized)
 	if err == nil && strings.EqualFold(parsed.Hostname(), "host.docker.internal") {
 		port := parsed.Port()
-		if port == "" {
-			port = "8000"
+		if port == "" && defaultPort != "" {
+			port = defaultPort
 		}
-		parsed.Host = "127.0.0.1:" + port
+		parsed.Host = "127.0.0.1"
+		if port != "" {
+			parsed.Host += ":" + port
+		}
 		return strings.TrimRight(parsed.String(), "/")
 	}
 	return normalized
@@ -914,6 +925,7 @@ func localHealthOK(ctx context.Context, healthURL string) (bool, string) {
 	if healthURL == "" {
 		return true, "not configured"
 	}
+	healthURL = normalizeLocalServiceURL(healthURL)
 	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, healthURL, nil)
@@ -932,8 +944,8 @@ func localHealthOK(ctx context.Context, healthURL string) (bool, string) {
 }
 
 func deploymentCommitMatches(actual, expected string) bool {
-	actual = strings.TrimSpace(actual)
-	expected = strings.TrimSpace(expected)
+	actual = strings.ToLower(strings.TrimSpace(actual))
+	expected = strings.ToLower(strings.TrimSpace(expected))
 	if actual == "" || expected == "" {
 		return false
 	}
