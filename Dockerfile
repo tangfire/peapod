@@ -4,7 +4,9 @@ ARG PEAPOD_RUNTIME_BASE_IMAGE=runtime-base
 
 FROM alpine:3.20 AS runtime-base
 
-RUN apk add --no-cache su-exec docker-cli && adduser -D -H -u 10001 app
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.cloud.tencent.com/alpine|g' /etc/apk/repositories \
+    && apk add --no-cache su-exec docker-cli \
+    && adduser -D -H -u 10001 app
 WORKDIR /app
 EXPOSE 8095
 
